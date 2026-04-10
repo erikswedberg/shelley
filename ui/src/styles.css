@@ -3385,7 +3385,8 @@ svg {
   background: var(--bg-tertiary);
   border-radius: 3px;
   overflow: hidden;
-  margin-top: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .subagent-progress-fill {
