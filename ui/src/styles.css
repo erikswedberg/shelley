@@ -727,6 +727,7 @@ button {
   overflow-wrap: break-word;
   word-wrap: break-word;
   min-width: 0;
+  font-size: 0.875rem;
 }
 
 .message-user .message-content {
