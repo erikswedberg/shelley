@@ -420,13 +420,14 @@ button {
 }
 
 .header-title {
+  font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: -0.02em;
-  min-width: 0; /* Allow shrinking */
+  min-width: 0;
 }
 
 .header-actions {
@@ -2729,10 +2730,11 @@ select:disabled {
 
 .animated-working {
   display: inline;
+  font-family: var(--font-mono);
 }
 
 .animated-working .bold-letter {
-  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .status-button {
