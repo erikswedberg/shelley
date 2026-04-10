@@ -35,6 +35,7 @@ body {
   --bg-tertiary: #f3f4f6;
   --bg-hover: #f3f4f6;
   --border: #e5e7eb;
+  --code-bg: #e5e7eb;
   --text-primary: #111827;
   --text-secondary: #6b7280;
   --text-tertiary: #9ca3af;
@@ -72,6 +73,7 @@ body {
   --bg-tertiary: #374151;
   --bg-hover: #374151;
   --border: #374151;
+  --code-bg: #4b5563;
   --text-primary: #f9fafb;
   --text-secondary: #9ca3af;
   --text-tertiary: #6b7280;
@@ -727,7 +729,7 @@ button {
   overflow-wrap: break-word;
   word-wrap: break-word;
   min-width: 0;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
 }
 
 .message-user .message-content {
@@ -6331,7 +6333,7 @@ kbd {
 .markdown-content code {
   font-family: var(--font-mono);
   font-size: 0.875rem;
-  background: var(--bg-tertiary);
+  background: var(--code-bg);
   padding: 0.15em 0.35em;
   border-radius: 4px;
 }
@@ -6339,7 +6341,7 @@ kbd {
 .markdown-content pre {
   margin: 0.75em 0;
   padding: 0.75em 1em;
-  background: var(--bg-tertiary);
+  background: var(--code-bg);
   border-radius: 6px;
   overflow-x: auto;
 }
@@ -6353,7 +6355,7 @@ kbd {
 .inline-code {
   font-family: var(--font-mono);
   font-size: 0.875em;
-  background: var(--bg-tertiary);
+  background: var(--code-bg);
   padding: 0.15em 0.35em;
   border-radius: 4px;
 }
@@ -6361,7 +6363,7 @@ kbd {
 .inline-code-block {
   margin: 0.5em 0;
   padding: 0.75em 1em;
-  background: var(--bg-tertiary);
+  background: var(--code-bg);
   border-radius: 6px;
   overflow-x: auto;
   white-space: pre;
