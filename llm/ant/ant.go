@@ -81,7 +81,7 @@ func ClaudeModelName(userName string) string {
 // supports1MContext reports whether the model supports 1M token context window.
 func supports1MContext(model string) bool {
 	switch model {
-	case Claude45Sonnet, Claude45Opus, Claude46Opus:
+	case Claude45Sonnet, Claude45Opus, Claude46Opus, Claude47Opus:
 		return true
 	default:
 		return false
