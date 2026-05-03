@@ -819,6 +819,7 @@ function ChatInterface({
     setDiffCommentText(buildMessageQuote(messageId, snippet));
   }, []);
   const [agentWorking, setAgentWorking] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
   // Detect if the conversation is currently distilling
@@ -1490,6 +1491,9 @@ function ChatInterface({
           // Update local state if this is for our conversation
           if (streamResponse.conversation_state.conversation_id === conversationId) {
             setAgentWorking(streamResponse.conversation_state.working);
+            if (streamResponse.conversation_state.plan_mode !== undefined) {
+              setPlanMode(streamResponse.conversation_state.plan_mode);
+            }
             // Update selected model from conversation (ensures consistency across sessions)
             if (streamResponse.conversation_state.model) {
               setSelectedModel(streamResponse.conversation_state.model);
@@ -1825,6 +1829,22 @@ function ChatInterface({
   };
 
   // Handler to distill and continue conversation
+  const handleTogglePlanMode = async () => {
+    if (!conversationId) return;
+    try {
+      const resp = await fetch(`/api/conversation/${conversationId}/plan-mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !planMode }),
+      });
+      if (resp.ok) {
+        setPlanMode(!planMode);
+      }
+    } catch (err) {
+      console.error("Failed to toggle plan mode:", err);
+    }
+  };
+
   const handleDistillConversation = async () => {
     if (!conversationId || !onDistillConversation) return;
     await onDistillConversation(
@@ -2904,24 +2924,35 @@ function ChatInterface({
 
       {/* Message input — hidden for archived conversations */}
       {!currentConversation?.archived && (
-        <MessageInput
-          key={conversationId || "new"}
-          onSend={sendMessage}
-          onQueue={queueMessage}
-          showQueueOption={!!conversationId}
-          canQueue={agentWorking && !!conversationId}
-          autoQueue={isDistilling && !!conversationId}
-          disabled={sending || loading}
-          autoFocus={true}
-          injectedText={terminalInjectedText || diffCommentText}
-          onClearInjectedText={() => {
-            setDiffCommentText("");
-            setTerminalInjectedText(null);
-          }}
-          persistKey={conversationId || "new-conversation"}
-          initialRows={conversationId ? 1 : 3}
-          statusSlot={conversationId && isMobile ? renderStatusContent() : undefined}
-        />
+        <div className="message-input-row">
+          <MessageInput
+            key={conversationId || "new"}
+            onSend={sendMessage}
+            onQueue={queueMessage}
+            showQueueOption={!!conversationId}
+            canQueue={agentWorking && !!conversationId}
+            autoQueue={isDistilling && !!conversationId}
+            disabled={sending || loading}
+            autoFocus={true}
+            injectedText={terminalInjectedText || diffCommentText}
+            onClearInjectedText={() => {
+              setDiffCommentText("");
+              setTerminalInjectedText(null);
+            }}
+            persistKey={conversationId || "new-conversation"}
+            initialRows={conversationId ? 1 : 3}
+            statusSlot={conversationId && isMobile ? renderStatusContent() : undefined}
+          />
+          {conversationId && (
+            <button
+              className="plan-mode-toggle"
+              onClick={handleTogglePlanMode}
+              title={planMode ? "Switch to Build Mode" : "Switch to Plan Mode"}
+            >
+              {planMode ? "[PLAN MODE]" : "[BUILD MODE]"}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Directory Picker Modal */}
