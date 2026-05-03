@@ -6,6 +6,7 @@ import {
   LLMContent,
   ConversationListUpdate,
   ToolProgress,
+  SubagentProgress,
   isDistillStatusMessage,
   isQueuedMessage,
 } from "../types";
@@ -54,6 +55,7 @@ import TerminalPanel, { EphemeralTerminal } from "./TerminalPanel";
 import ModelPicker from "./ModelPicker";
 import ModelBar from "./ModelBar";
 import SystemPromptView from "./SystemPromptView";
+import TodoPanel from "./TodoPanel";
 
 interface ContextUsageBarProps {
   contextWindowSize: number;
@@ -511,6 +513,7 @@ interface ChatInterfaceProps {
   onConversationUpdate?: (conversation: Conversation) => void;
   onConversationListUpdate?: (update: ConversationListUpdate) => void;
   onConversationStateUpdate?: (state: ConversationStateUpdate) => void;
+  onSubagentProgress?: (progress: SubagentProgress) => void;
   onFirstMessage?: (
     message: string,
     model: string,
@@ -655,6 +658,7 @@ function ChatInterface({
   onConversationUpdate,
   onConversationListUpdate,
   onConversationStateUpdate,
+  onSubagentProgress,
   onFirstMessage,
   onDistillConversation,
   onDistillReplaceConversation,
@@ -821,6 +825,9 @@ function ChatInterface({
   const [agentWorking, setAgentWorking] = useState(false);
   const [planMode, setPlanMode] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [todoContent, setTodoContent] = useState("");
+  const [todoDismissedMap, setTodoDismissedMap] = useState<Record<string, boolean>>({});
+  const [todoMinimizedMap, setTodoMinimizedMap] = useState<Record<string, boolean>>({});
 
   // Detect if the conversation is currently distilling
   const isDistilling = useMemo(() => {
@@ -1048,12 +1055,14 @@ function ChatInterface({
       setAgentWorking(false);
       setToolProgress({});
       setStreamingText("");
+      setTodoContent("");
       loadMessages();
       setupMessageStream();
     } else {
       // No conversation yet, show empty state
       setMessages([]);
       setContextWindowSize(0);
+      setTodoContent("");
       setToolProgress({});
       setStreamingText("");
       if (loadingProgressDelayRef.current) {
@@ -1494,6 +1503,18 @@ function ChatInterface({
             if (streamResponse.conversation_state.plan_mode !== undefined) {
               setPlanMode(streamResponse.conversation_state.plan_mode);
             }
+            if (streamResponse.conversation_state.todo_content !== undefined) {
+              setTodoContent((prev) => {
+                if (prev && prev !== streamResponse.conversation_state!.todo_content) {
+                  setTodoDismissedMap((m) => {
+                    const next = { ...m };
+                    delete next[streamResponse.conversation_state!.conversation_id];
+                    return next;
+                  });
+                }
+                return streamResponse.conversation_state!.todo_content || "";
+              });
+            }
             // Update selected model from conversation (ensures consistency across sessions)
             if (streamResponse.conversation_state.model) {
               setSelectedModel(streamResponse.conversation_state.model);
@@ -1504,6 +1525,11 @@ function ChatInterface({
         // Dispatch notification events to registered handlers
         if (streamResponse.notification_event) {
           handleNotificationEvent(streamResponse.notification_event);
+        }
+
+        // Handle subagent progress
+        if (streamResponse.subagent_progress && onSubagentProgress) {
+          onSubagentProgress(streamResponse.subagent_progress);
         }
 
         // Handle tool progress (partial output from running tools)
@@ -1606,7 +1632,7 @@ function ChatInterface({
       // Start heartbeat timeout monitoring
       resetHeartbeatTimeout();
     };
-  }, [conversationId, onConversationUpdate, onConversationListUpdate, onConversationStateUpdate]);
+  }, [conversationId, onConversationUpdate, onConversationListUpdate, onConversationStateUpdate, onSubagentProgress]);
 
   // Force-reconnect: close existing connection and reconnect to get missed messages
   const forceReconnect = useCallback(() => {
@@ -2827,6 +2853,14 @@ function ChatInterface({
       {/* Messages area */}
       {/* Messages area with scroll-to-bottom button wrapper */}
       <div className="messages-area-wrapper">
+        {todoContent && conversationId && !todoDismissedMap[conversationId] && (
+          <TodoPanel
+            todoContent={todoContent}
+            minimized={!!todoMinimizedMap[conversationId!]}
+            onToggleMinimize={() => conversationId && setTodoMinimizedMap((m) => ({ ...m, [conversationId!]: !m[conversationId!] }))}
+            onDismiss={() => conversationId && setTodoDismissedMap((m) => ({ ...m, [conversationId!]: true }))}
+          />
+        )}
         <div className="messages-container scrollable" ref={messagesContainerRef}>
           {loading ? (
             showLoadingProgressUI ? (
