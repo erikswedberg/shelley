@@ -1517,6 +1517,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 						ConversationID: conversationID,
 						Working:        manager.IsAgentWorking(),
 						Model:          manager.GetModel(),
+						TodoContent:    manager.readTodoContent(),
 					},
 					Heartbeat: true,
 				}

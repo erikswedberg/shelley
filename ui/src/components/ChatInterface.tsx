@@ -6,6 +6,7 @@ import {
   StreamResponse,
   LLMContent,
   ToolProgress,
+  SubagentProgress,
   isDistillStatusMessage,
   isQueuedMessage,
 } from "../types";
@@ -59,6 +60,7 @@ import TerminalPanel, { EphemeralTerminal } from "./TerminalPanel";
 import ModelPicker from "./ModelPicker";
 import ModelBar from "./ModelBar";
 import SystemPromptView from "./SystemPromptView";
+import TodoPanel from "./TodoPanel";
 
 interface ContextUsageBarProps {
   contextWindowSize: number;
@@ -556,6 +558,7 @@ interface ChatInterfaceProps {
   onTerminalAttached?: (id: string, termId: string) => void;
   onTerminalClose?: (id: string) => void;
   navigateUserMessageTrigger?: number; // positive = next, negative = previous
+  onSubagentProgress?: (progress: SubagentProgress) => void;
   onConversationUnarchived?: (conversation: Conversation) => void;
 }
 
@@ -688,6 +691,7 @@ function ChatInterface({
   onTerminalAttached,
   onTerminalClose,
   navigateUserMessageTrigger,
+  onSubagentProgress,
   onConversationUnarchived,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -857,6 +861,9 @@ function ChatInterface({
   }, []);
   const [agentWorking, setAgentWorking] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [todoContent, setTodoContent] = useState("");
+  const [todoDismissedMap, setTodoDismissedMap] = useState<Record<string, boolean>>({});
+  const [todoMinimizedMap, setTodoMinimizedMap] = useState<Record<string, boolean>>({});
 
   // Detect if the conversation is currently distilling
   const isDistilling = useMemo(() => {
@@ -1112,12 +1119,14 @@ function ChatInterface({
       setAgentWorking(false);
       setToolProgress({});
       setStreamingText("");
+      setTodoContent("");
       loadMessages();
       setupMessageStream();
     } else {
       // No conversation yet, show empty state
       setMessages([]);
       setContextWindowSize(0);
+      setTodoContent("");
       setToolProgress({});
       setStreamingText("");
       if (loadingProgressDelayRef.current) {
@@ -1554,9 +1563,26 @@ function ChatInterface({
           streamResponse.conversation_state.conversation_id === conversationId
         ) {
           setAgentWorking(streamResponse.conversation_state.working);
+          if (streamResponse.conversation_state.todo_content !== undefined) {
+            setTodoContent((prev) => {
+              if (prev && prev !== streamResponse.conversation_state!.todo_content) {
+                setTodoDismissedMap((m) => {
+                  const next = { ...m };
+                  delete next[streamResponse.conversation_state!.conversation_id];
+                  return next;
+                });
+              }
+              return streamResponse.conversation_state!.todo_content || "";
+            });
+          }
           if (streamResponse.conversation_state.model) {
             setSelectedModel(streamResponse.conversation_state.model);
           }
+        }
+
+        // Handle subagent progress
+        if (streamResponse.subagent_progress && onSubagentProgress) {
+          onSubagentProgress(streamResponse.subagent_progress);
         }
 
         // Dispatch notification events to registered handlers
@@ -1660,7 +1686,7 @@ function ChatInterface({
       // Start heartbeat timeout monitoring
       resetHeartbeatTimeout();
     };
-  }, [conversationId, conversationListHash, onConversationUpdate, onConversationListPatch]);
+  }, [conversationId, conversationListHash, onConversationUpdate, onConversationListPatch, onSubagentProgress]);
 
   // Force-reconnect: close existing connection and reconnect to get missed messages
   const forceReconnect = useCallback(() => {
@@ -3024,6 +3050,14 @@ function ChatInterface({
       {/* Messages area */}
       {/* Messages area with scroll-to-bottom button wrapper */}
       <div className="messages-area-wrapper">
+        {todoContent && conversationId && !todoDismissedMap[conversationId] && (
+          <TodoPanel
+            todoContent={todoContent}
+            minimized={!!todoMinimizedMap[conversationId!]}
+            onToggleMinimize={() => conversationId && setTodoMinimizedMap((m) => ({ ...m, [conversationId!]: !m[conversationId!] }))}
+            onDismiss={() => conversationId && setTodoDismissedMap((m) => ({ ...m, [conversationId!]: true }))}
+          />
+        )}
         <div className="messages-container scrollable" ref={messagesContainerRef}>
           {loading ? (
             showLoadingProgressUI ? (

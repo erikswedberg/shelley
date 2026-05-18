@@ -45,3 +45,19 @@ func WithToolUseID(ctx context.Context, id string) context.Context {
 func ToolUseID(ctx context.Context) string {
 	return llm.ToolUseID(ctx)
 }
+
+type todoChangeCtxKeyType string
+
+const todoChangeCtxKey todoChangeCtxKeyType = "todoChange"
+
+// WithTodoChangeCallback returns a context with a callback invoked when todos change.
+func WithTodoChangeCallback(ctx context.Context, fn func()) context.Context {
+	return context.WithValue(ctx, todoChangeCtxKey, fn)
+}
+
+// NotifyTodoChange calls the todo change callback if set.
+func NotifyTodoChange(ctx context.Context) {
+	if fn, ok := ctx.Value(todoChangeCtxKey).(func()); ok && fn != nil {
+		fn()
+	}
+}

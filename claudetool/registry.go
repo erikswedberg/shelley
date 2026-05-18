@@ -30,6 +30,8 @@ var ToolRegistry = []ToolInfo{
 	{Name: "browser_network", Summary: "Browser network inspection.", DefaultOn: true},
 	{Name: "browser_accessibility", Summary: "Browser accessibility tree inspection.", DefaultOn: true},
 	{Name: "browser_profile", Summary: "Browser performance profiling.", DefaultOn: true},
+	{Name: "todo_read", Summary: "Read the current todo list.", DefaultOn: true},
+	{Name: "todo_write", Summary: "Create/update a structured task list.", DefaultOn: true},
 }
 
 // IsToolEnabled reports whether a tool with the given name is enabled for a

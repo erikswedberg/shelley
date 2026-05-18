@@ -77,6 +77,9 @@ type ConversationManager struct {
 	// onDone is called when the agent finishes working (transitions to not working).
 	// Used by subagents to notify their parent conversation.
 	onDone func()
+	// onTodoProgress is called when the todo list changes.
+	// Used by subagents to broadcast progress to the parent.
+	onTodoProgress func(completed, total int)
 }
 
 // NewConversationManager constructs a manager with dependencies but defers hydration until needed.
@@ -152,11 +155,21 @@ func (cm *ConversationManager) SetAgentWorking(working bool) {
 			ConversationID: convID,
 			Working:        working,
 			Model:          modelID,
+			TodoContent:    cm.readTodoContent(),
 		})
 	}
 	if !working && onDone != nil {
 		onDone()
 	}
+}
+
+// readTodoContent returns the current todo list JSON, or empty string if none exists.
+func (cm *ConversationManager) readTodoContent() string {
+	content, err := os.ReadFile(claudetool.TodoFilePath(cm.conversationID))
+	if err != nil {
+		return ""
+	}
+	return string(content)
 }
 
 // IsAgentWorking returns the current agent working state.
@@ -971,6 +984,30 @@ func (cm *ConversationManager) ensureLoop(service llm.Service, modelID string) e
 		},
 		OnStreamDelta: sf.Push,
 		OnStreamDone:  sf.Flush,
+		OnTodoChange: func() {
+			todoContent := cm.readTodoContent()
+			if cm.onStateChange != nil {
+				cm.onStateChange(ConversationState{
+					ConversationID: conversationID,
+					Working:        true,
+					Model:          modelID,
+					TodoContent:    todoContent,
+				})
+			}
+			if cm.onTodoProgress != nil && todoContent != "" {
+				var todoList claudetool.TodoList
+				if json.Unmarshal([]byte(todoContent), &todoList) == nil {
+					completed := 0
+					for _, item := range todoList.Items {
+						if item.Status == "completed" {
+							completed++
+						}
+					}
+					cm.onTodoProgress(completed, len(todoList.Items))
+				}
+			}
+		},
+		SessionID: conversationID,
 	})
 
 	cm.mu.Lock()

@@ -47,6 +47,7 @@ export interface ConversationStateForTS {
   conversation_id: string;
   working: boolean;
   model?: string;
+  todo_content?: string;
 }
 
 export interface NotificationEventForTS {

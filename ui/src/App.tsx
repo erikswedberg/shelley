@@ -8,7 +8,7 @@ import CommandPalette from "./components/CommandPalette";
 import ModelsModal from "./components/ModelsModal";
 import NotificationsModal from "./components/NotificationsModal";
 import { focusMessageInputIfUnfocused } from "./utils/focusMessageInput";
-import { Conversation, ConversationWithState, ConversationListPatchEvent } from "./types";
+import { Conversation, ConversationWithState, ConversationListPatchEvent, SubagentProgress } from "./types";
 import { api } from "./services/api";
 import { conversationCache } from "./services/conversationCache";
 import {
@@ -184,6 +184,7 @@ function App() {
     });
   }, []);
   const [showActiveTrigger, setShowActiveTrigger] = useState(0);
+  const [subagentProgressMap, setSubagentProgressMap] = useState<Record<string, SubagentProgress>>({});
   const initialSlugResolved = useRef(false);
   const conversationListHashRef = useRef<string | null>(null);
   const conversationsRef = useRef<ConversationWithState[]>([]);
@@ -660,6 +661,7 @@ function App() {
           onConversationArchived={handleConversationArchived}
           onConversationUnarchived={handleConversationUnarchived}
           onConversationRenamed={handleConversationRenamed}
+          subagentProgressMap={subagentProgressMap}
           showActiveTrigger={showActiveTrigger}
         />
 
@@ -678,6 +680,12 @@ function App() {
             conversationListHash={conversationListHashRef.current}
             onConversationListPatch={handleConversationListPatch}
             onFirstMessage={handleFirstMessage}
+            onSubagentProgress={(progress) => {
+              setSubagentProgressMap((prev) => ({
+                ...prev,
+                [progress.conversation_id]: progress,
+              }));
+            }}
             onDistillNewGeneration={handleDistillNewGeneration}
             mostRecentCwd={mostRecentCwd}
             isDrawerCollapsed={drawerCollapsed}
