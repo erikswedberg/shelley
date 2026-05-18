@@ -53,8 +53,11 @@ type ConversationState struct {
 	ConversationID string `json:"conversation_id"`
 	Working        bool   `json:"working"`
 	Model          string `json:"model,omitempty"`
+	PlanMode       *bool  `json:"plan_mode,omitempty"`
 	TodoContent    string `json:"todo_content,omitempty"`
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 // SubagentProgress reports a subagent's todo list progress to the parent.
 type SubagentProgress struct {

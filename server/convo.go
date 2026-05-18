@@ -74,6 +74,9 @@ type ConversationManager struct {
 	// This allows the server to broadcast state changes to all subscribers.
 	onStateChange func(state ConversationState)
 
+	// planMode is stored on the manager so it survives loop recreation.
+	planMode bool
+
 	// onDone is called when the agent finishes working (transitions to not working).
 	// Used by subagents to notify their parent conversation.
 	onDone func()
@@ -155,6 +158,7 @@ func (cm *ConversationManager) SetAgentWorking(working bool) {
 			ConversationID: convID,
 			Working:        working,
 			Model:          modelID,
+			PlanMode:       boolPtr(cm.GetPlanMode()),
 			TodoContent:    cm.readTodoContent(),
 		})
 	}
@@ -236,6 +240,27 @@ func (cm *ConversationManager) GetModel() string {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	return cm.modelID
+}
+
+// SetPlanMode enables or disables plan mode, filtering tools on the active loop.
+func (cm *ConversationManager) SetPlanMode(enabled bool) {
+	cm.mu.Lock()
+	cm.planMode = enabled
+	loopInstance := cm.loop
+	cm.mu.Unlock()
+
+	if loopInstance != nil {
+		loopInstance.SetPlanMode(enabled)
+	}
+
+	cm.logger.Info("plan mode changed", "enabled", enabled)
+}
+
+// GetPlanMode returns whether plan mode is enabled.
+func (cm *ConversationManager) GetPlanMode() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.planMode
 }
 
 // Hydrate loads conversation metadata from the database and generates a system
@@ -991,6 +1016,7 @@ func (cm *ConversationManager) ensureLoop(service llm.Service, modelID string) e
 					ConversationID: conversationID,
 					Working:        true,
 					Model:          modelID,
+					PlanMode:       boolPtr(cm.GetPlanMode()),
 					TodoContent:    todoContent,
 				})
 			}
@@ -1028,7 +1054,13 @@ func (cm *ConversationManager) ensureLoop(service llm.Service, modelID string) e
 	cm.loopCtx = processCtx
 	cm.modelID = modelID
 	cm.toolSet = toolSet
+	restoredPlanMode := cm.planMode
 	cm.mu.Unlock()
+
+	// Restore plan mode if it was set before loop recreation
+	if restoredPlanMode {
+		loopInstance.SetPlanMode(true)
+	}
 
 	// Persist model for legacy conversations
 	if needsPersist {
