@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,12 @@ const (
 	connectTimeoutHTTP  = 10 * time.Second
 	connectTimeoutStdio = 60 * time.Second
 )
+
+// callTimeout caps how long a single tool call may take. Bounded so a
+// hung MCP server (e.g. the Figma Dev Mode plugin processing a heavy
+// node) can't wedge the conversation forever. The model can then move
+// on or retry. Variable (not const) so tests can override.
+var callTimeout = 5 * time.Minute
 
 // headerRoundTripper adds static headers to every outbound request.
 type headerRoundTripper struct {
@@ -288,11 +295,16 @@ func callMCP(ctx context.Context, s *session, toolName string, input json.RawMes
 		}
 		args = coerceArgs(args, schema, toolName, logger)
 	}
-	res, err := s.sdk.CallTool(ctx, &sdk.CallToolParams{
+	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	res, err := s.sdk.CallTool(callCtx, &sdk.CallToolParams{
 		Name:      toolName,
 		Arguments: args,
 	})
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return llm.ToolOut{Error: fmt.Errorf("mcp call %s.%s timed out after %s — server did not respond", s.cfg.Name, toolName, callTimeout)}
+		}
 		return llm.ToolOut{Error: fmt.Errorf("mcp call %s.%s: %w", s.cfg.Name, toolName, err)}
 	}
 	llmContent := contentFromMCP(res.Content)
