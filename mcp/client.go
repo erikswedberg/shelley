@@ -229,12 +229,14 @@ func buildTools(ctx context.Context, s *session, logger *slog.Logger) ([]*llm.To
 			}
 		}
 		sess := s
+		capturedSchema := schema
+		capturedLogger := logger
 		out = append(out, &llm.Tool{
 			Name:        name,
 			Description: desc,
 			InputSchema: schema,
 			Run: func(ctx context.Context, input json.RawMessage) llm.ToolOut {
-				return callMCP(ctx, sess, fullName, input)
+				return callMCP(ctx, sess, fullName, input, capturedSchema, capturedLogger)
 			},
 		})
 	}
@@ -278,12 +280,13 @@ func sanitizeSchema(in any) (json.RawMessage, error) {
 	return json.Marshal(obj)
 }
 
-func callMCP(ctx context.Context, s *session, toolName string, input json.RawMessage) llm.ToolOut {
+func callMCP(ctx context.Context, s *session, toolName string, input json.RawMessage, schema json.RawMessage, logger *slog.Logger) llm.ToolOut {
 	var args any
 	if len(input) > 0 {
 		if err := json.Unmarshal(input, &args); err != nil {
 			return llm.ToolOut{Error: fmt.Errorf("invalid arguments: %w", err)}
 		}
+		args = coerceArgs(args, schema, toolName, logger)
 	}
 	res, err := s.sdk.CallTool(ctx, &sdk.CallToolParams{
 		Name:      toolName,
