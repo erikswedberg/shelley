@@ -58,3 +58,45 @@ func TestCoerceArgs_NonObjectPassThrough(t *testing.T) {
 		t.Fatalf("want pass-through, got %v", got)
 	}
 }
+
+func TestCoerceArgs_StringifiedArrayAndObject(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"nodes": {"type":"array"},
+			"opts":  {"type":"object"},
+			"note":  {"type":"string"}
+		}
+	}`)
+	in := map[string]any{
+		"nodes": `[{"nodeId":"1:2","fileName":"a.png"}]`,
+		"opts":  `{"verbose":true}`,
+		"note":  `["this should stay a string"]`,
+	}
+	out := coerceArgs(in, schema, "t", nil).(map[string]any)
+
+	arr, ok := out["nodes"].([]any)
+	if !ok || len(arr) != 1 {
+		t.Fatalf("nodes not coerced to array: %T %v", out["nodes"], out["nodes"])
+	}
+	item, _ := arr[0].(map[string]any)
+	if item["nodeId"] != "1:2" || item["fileName"] != "a.png" {
+		t.Fatalf("array item wrong: %+v", item)
+	}
+	o, ok := out["opts"].(map[string]any)
+	if !ok || o["verbose"] != true {
+		t.Fatalf("opts not coerced to object: %T %v", out["opts"], out["opts"])
+	}
+	if s, _ := out["note"].(string); s == "" {
+		t.Fatalf("note should stay a string")
+	}
+}
+
+func TestCoerceArgs_StringNotJSON_NoArrayCoerce(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"nodes":{"type":"array"}}}`)
+	in := map[string]any{"nodes": "just-a-name"}
+	out := coerceArgs(in, schema, "t", nil).(map[string]any)
+	if _, ok := out["nodes"].(string); !ok {
+		t.Fatalf("want pass-through string, got %T", out["nodes"])
+	}
+}

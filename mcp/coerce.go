@@ -4,7 +4,23 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strconv"
+	"strings"
 )
+
+// parseJSONIf parses str as JSON only if (after trimming) it begins with the
+// expected sentinel ('[' for array, '{' for object). Avoids accidentally
+// converting legitimate strings that happen to be JSON-parseable scalars.
+func parseJSONIf(str string, want byte) (any, bool) {
+	trimmed := strings.TrimSpace(str)
+	if len(trimmed) == 0 || trimmed[0] != want {
+		return nil, false
+	}
+	var v any
+	if err := json.Unmarshal([]byte(trimmed), &v); err != nil {
+		return nil, false
+	}
+	return v, true
+}
 
 // coerceArgs forgives a common LLM mistake: sending stringified scalars where
 // the tool's JSON Schema declares number/integer/boolean. It walks the
@@ -58,6 +74,16 @@ func coerceArgs(args any, schema json.RawMessage, toolName string, logger *slog.
 			case "false":
 				obj[key] = false
 				logCoerce(logger, toolName, key, str, "boolean")
+			}
+		case hasType(declared, "array"):
+			if arr, ok := parseJSONIf(str, '['); ok {
+				obj[key] = arr
+				logCoerce(logger, toolName, key, "<stringified JSON>", "array")
+			}
+		case hasType(declared, "object"):
+			if o, ok := parseJSONIf(str, '{'); ok {
+				obj[key] = o
+				logCoerce(logger, toolName, key, "<stringified JSON>", "object")
 			}
 		}
 	}
