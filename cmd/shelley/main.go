@@ -14,6 +14,7 @@ import (
 	"shelley.exe.dev/claudetool"
 	"shelley.exe.dev/client"
 	"shelley.exe.dev/db"
+	"shelley.exe.dev/mcp"
 	"shelley.exe.dev/models"
 	"shelley.exe.dev/server"
 	_ "shelley.exe.dev/server/notifications/channels" // register channel types
@@ -30,6 +31,18 @@ type GlobalConfig struct {
 	ConfigPath      string
 	DefaultModel    string
 	LLMAPIKey       string
+	MCPFlags        stringSlice // --mcp name=URL (repeatable)
+	MCPConfigPath   string      // --mcp-config FILE
+	MCPServers      []mcp.ServerConfig
+}
+
+// stringSlice implements flag.Value for repeatable string flags.
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ",") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
 }
 
 func main() {
@@ -43,6 +56,8 @@ func main() {
 	flag.StringVar(&global.ConfigPath, "config", "", "Path to shelley.json configuration file (optional)")
 	flag.StringVar(&global.DefaultModel, "default-model", defaultModelID, "Default model for web UI")
 	flag.StringVar(&global.LLMAPIKey, "llm-api-key", "", "Path to file containing API key, or the API key itself (overrides ANTHROPIC_API_KEY)")
+	flag.Var(&global.MCPFlags, "mcp", "MCP server as name=URL (repeatable); e.g. --mcp figma=http://host.sand:3845/mcp")
+	flag.StringVar(&global.MCPConfigPath, "mcp-config", "", "Path to JSON config file with mcpServers map (Claude Code / Desktop format)")
 
 	// Custom usage function
 	flag.Usage = func() {
@@ -62,6 +77,14 @@ func main() {
 	// Parse all flags first
 	flag.Parse()
 	args := flag.Args()
+
+	// Load MCP server configs (CLI flags + optional --mcp-config file).
+	mcpServers, err := mcp.LoadConfig([]string(global.MCPFlags), global.MCPConfigPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	global.MCPServers = mcpServers
 
 	if len(args) == 0 {
 		flag.Usage()
@@ -170,6 +193,14 @@ func runServe(global GlobalConfig, args []string) {
 	logger.Info("Available models", "models", strings.Join(availableModels, ", "))
 
 	toolSetConfig := setupToolSetConfig(llmManager, llmManager)
+	toolSetConfig.MCPServers = global.MCPServers
+	if len(global.MCPServers) > 0 {
+		names := make([]string, 0, len(global.MCPServers))
+		for _, s := range global.MCPServers {
+			names = append(names, s.Name)
+		}
+		logger.Info("MCP servers configured", "servers", strings.Join(names, ", "))
+	}
 
 	// Create server
 	svr := server.NewServer(database, llmManager, toolSetConfig, logger, global.PredictableOnly, llmConfig.DefaultModel, *requireHeader)

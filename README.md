@@ -91,6 +91,40 @@ Shelley is Apache licensed. We require a CLA for contributions.
 
 Run `make`. Run `make serve` to start Shelley locally.
 
+## MCP servers
+
+Shelley can connect to [Model Context Protocol](https://modelcontextprotocol.io)
+servers and expose their tools to the model. Streamable-HTTP transport only
+(no stdio yet).
+
+Configure via repeatable `--mcp` flags:
+
+```
+shelley --mcp figma=http://host.sand:3845/mcp serve --port 8080
+```
+
+Or via a JSON config file whose shape matches Claude Code / Claude Desktop:
+
+```
+shelley --mcp-config ~/.shelley/mcp.json serve
+```
+
+```json
+{
+  "mcpServers": {
+    "figma": { "url": "http://host.sand:3845/mcp" },
+    "example": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer abc" }
+    }
+  }
+}
+```
+
+Tools are exposed to the model as `<serverName>__<toolName>` (e.g.
+`figma__get_design_context`) to avoid collisions with built-in tools.
+Failed connections are logged and skipped — the conversation still starts.
+
 ## Dev Tricks
 
 If you want to see how mobile looks, and you're on your home

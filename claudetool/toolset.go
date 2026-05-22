@@ -9,6 +9,7 @@ import (
 
 	"shelley.exe.dev/claudetool/browse"
 	"shelley.exe.dev/llm"
+	"shelley.exe.dev/mcp"
 )
 
 // WorkingDir is a thread-safe mutable working directory.
@@ -81,6 +82,9 @@ type ToolSetConfig struct {
 	ToolOverrides map[string]string
 	// DisableAllTools disables every tool by default; ToolOverrides with "on" re-enable.
 	DisableAllTools bool
+	// MCPServers are configured Model Context Protocol servers. Their tools are
+	// fetched and added to the tool set at ToolSet construction time.
+	MCPServers []mcp.ServerConfig
 }
 
 // ToolSet holds a set of tools for a single conversation.
@@ -139,6 +143,8 @@ type OrchestratorToolSetConfig struct {
 	ToolOverrides map[string]string
 	// DisableAllTools disables every tool by default; ToolOverrides with "on" re-enable.
 	DisableAllTools bool
+	// MCPServers are configured Model Context Protocol servers. See ToolSetConfig.MCPServers.
+	MCPServers []mcp.ServerConfig
 }
 
 // NewOrchestratorToolSet creates a reduced tool set for orchestrator mode.
@@ -230,12 +236,26 @@ func NewOrchestratorToolSet(ctx context.Context, cfg OrchestratorToolSetConfig) 
 		cleanup = browserCleanup
 	}
 
+	mcpTools, mcpCleanup := mcp.Connect(ctx, cfg.MCPServers, slog.Default())
+	tools = append(tools, mcpTools...)
+	cleanup = chainCleanup(cleanup, mcpCleanup)
+
 	tools = FilterTools(tools, cfg.ToolOverrides, cfg.DisableAllTools)
 	return &ToolSet{
 		tools:   tools,
 		cleanup: cleanup,
 		wd:      wd,
 	}
+}
+
+func chainCleanup(a, b func()) func() {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	}
+	return func() { a(); b() }
 }
 
 // NewToolSet creates a new set of tools for a conversation.
@@ -359,6 +379,10 @@ func NewToolSet(ctx context.Context, cfg ToolSetConfig) *ToolSet {
 		}
 		cleanup = browserCleanup
 	}
+
+	mcpTools, mcpCleanup := mcp.Connect(ctx, cfg.MCPServers, slog.Default())
+	tools = append(tools, mcpTools...)
+	cleanup = chainCleanup(cleanup, mcpCleanup)
 
 	tools = FilterTools(tools, cfg.ToolOverrides, cfg.DisableAllTools)
 	return &ToolSet{
