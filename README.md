@@ -94,16 +94,17 @@ Run `make`. Run `make serve` to start Shelley locally.
 ## MCP servers
 
 Shelley can connect to [Model Context Protocol](https://modelcontextprotocol.io)
-servers and expose their tools to the model. Streamable-HTTP transport only
-(no stdio yet).
+servers and expose their tools to the model. Two transports are supported:
+Streamable HTTP and stdio.
 
-Configure via repeatable `--mcp` flags:
+Configure HTTP servers via repeatable `--mcp` flags:
 
 ```
 shelley --mcp figma=http://host.sand:3845/mcp serve --port 8080
 ```
 
-Or via a JSON config file whose shape matches Claude Code / Claude Desktop:
+For stdio servers (or a mix) use a JSON config file whose shape matches
+Claude Code / Claude Desktop:
 
 ```
 shelley --mcp-config ~/.shelley/mcp.json serve
@@ -112,18 +113,29 @@ shelley --mcp-config ~/.shelley/mcp.json serve
 ```json
 {
   "mcpServers": {
-    "figma": { "url": "http://host.sand:3845/mcp" },
-    "example": {
-      "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer abc" }
+    "figma":     { "url": "http://host.sand:3845/mcp" },
+    "example":   {
+      "url":     "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${MY_TOKEN}" }
+    },
+    "framelink": {
+      "command": "npx",
+      "args":    ["-y", "figma-developer-mcp", "--stdio"],
+      "env":     { "FIGMA_API_KEY": "${FIGMA_API_KEY}" }
     }
   }
 }
 ```
 
+`${VAR}` references in `headers` values and `env` values are expanded from
+the launcher's environment. Missing variables substitute to empty and log a
+warning.
+
 Tools are exposed to the model as `<serverName>__<toolName>` (e.g.
 `figma__get_design_context`) to avoid collisions with built-in tools.
 Failed connections are logged and skipped — the conversation still starts.
+For stdio servers, the child process is spawned at conversation start and
+terminated on cleanup; its stderr is forwarded to Shelley's logs.
 
 ## Dev Tricks
 

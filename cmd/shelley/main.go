@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -79,10 +80,16 @@ func main() {
 	args := flag.Args()
 
 	// Load MCP server configs (CLI flags + optional --mcp-config file).
+	// MissingEnvError is non-fatal: warn and continue.
 	mcpServers, err := mcp.LoadConfig([]string(global.MCPFlags), global.MCPConfigPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		var me *mcp.MissingEnvError
+		if errors.As(err, &me) {
+			fmt.Fprintln(os.Stderr, "warning:", err)
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	global.MCPServers = mcpServers
 

@@ -1,12 +1,16 @@
 package mcp
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +21,12 @@ import (
 )
 
 // connectTimeout caps how long we'll wait to set up the MCP session.
-const connectTimeout = 10 * time.Second
+// Stdio servers may need longer than HTTP — npx will download packages
+// on first run.
+const (
+	connectTimeoutHTTP  = 10 * time.Second
+	connectTimeoutStdio = 60 * time.Second
+)
 
 // headerRoundTripper adds static headers to every outbound request.
 type headerRoundTripper struct {
@@ -47,9 +56,17 @@ func (s *session) close() {
 	_ = s.sdk.Close()
 }
 
-// connect establishes one MCP session over Streamable HTTP.
-func connect(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*session, error) {
-	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
+// newSDKClient builds the SDK Client used for any transport.
+func newSDKClient() *sdk.Client {
+	return sdk.NewClient(&sdk.Implementation{
+		Name:    "shelley",
+		Version: version.Version,
+	}, nil)
+}
+
+// connectHTTP establishes one MCP session over Streamable HTTP.
+func connectHTTP(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*session, error) {
+	ctx, cancel := context.WithTimeout(ctx, connectTimeoutHTTP)
 	defer cancel()
 
 	hc := &http.Client{}
@@ -61,18 +78,74 @@ func connect(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*sessi
 		HTTPClient:           hc,
 		DisableStandaloneSSE: true, // we don't yet handle server-initiated messages
 	}
-	cli := sdk.NewClient(&sdk.Implementation{
-		Name:    "shelley",
-		Version: version.Version,
-	}, nil)
-	sess, err := cli.Connect(ctx, tr, nil)
+	sess, err := newSDKClient().Connect(ctx, tr, nil)
 	if err != nil {
 		return nil, fmt.Errorf("mcp(%s): connect: %w", cfg.Name, err)
 	}
 	if logger != nil {
-		logger.Info("mcp connected", "server", cfg.Name, "url", cfg.URL)
+		logger.Info("mcp connected", "server", cfg.Name, "transport", "http", "url", cfg.URL)
 	}
 	return &session{cfg: cfg, sdk: sess}, nil
+}
+
+// connectStdio spawns the configured command and connects to it over stdin/stdout.
+// stderr is drained to logger with a bounded buffer.
+func connectStdio(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*session, error) {
+	ctx, cancel := context.WithTimeout(ctx, connectTimeoutStdio)
+	defer cancel()
+
+	cmd := exec.Command(cfg.Command, cfg.Args...)
+	// Inherit parent env, overlay configured env.
+	cmd.Env = os.Environ()
+	for k, v := range cfg.Env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("mcp(%s): stderr pipe: %w", cfg.Name, err)
+	}
+	go drainStderr(cfg.Name, stderr, logger)
+
+	tr := &sdk.CommandTransport{Command: cmd}
+	sess, err := newSDKClient().Connect(ctx, tr, nil)
+	if err != nil {
+		return nil, fmt.Errorf("mcp(%s): connect stdio %s: %w", cfg.Name, cfg.Command, err)
+	}
+	if logger != nil {
+		logger.Info("mcp connected", "server", cfg.Name, "transport", "stdio", "command", cfg.Command)
+	}
+	return &session{cfg: cfg, sdk: sess}, nil
+}
+
+// drainStderr forwards child-process stderr lines to logger. It silently
+// stops if logger is nil or the pipe closes; never blocks the parent.
+func drainStderr(name string, r io.ReadCloser, logger *slog.Logger) {
+	defer r.Close()
+	if logger == nil {
+		_, _ = io.Copy(io.Discard, r)
+		return
+	}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024) // up to 1MB lines
+	for sc.Scan() {
+		line := strings.TrimRight(sc.Text(), "\r\n")
+		if line == "" {
+			continue
+		}
+		logger.Info("mcp stderr", "server", name, "line", line)
+	}
+}
+
+// connect dispatches on the transport type.
+func connect(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*session, error) {
+	switch {
+	case cfg.IsHTTP():
+		return connectHTTP(ctx, cfg, logger)
+	case cfg.IsStdio():
+		return connectStdio(ctx, cfg, logger)
+	default:
+		return nil, fmt.Errorf("mcp(%s): no transport configured", cfg.Name)
+	}
 }
 
 // Connect attempts to connect to every configured server. Failures are logged
