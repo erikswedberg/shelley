@@ -36,12 +36,18 @@ const (
 var callTimeout = 5 * time.Minute
 
 // headerRoundTripper adds static headers to every outbound request.
+// Per the http.RoundTripper contract, RoundTrip must not modify its request,
+// so we clone before adding headers.
 type headerRoundTripper struct {
 	base    http.RoundTripper
 	headers map[string]string
 }
 
 func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if len(h.headers) == 0 {
+		return h.base.RoundTrip(req)
+	}
+	req = req.Clone(req.Context())
 	for k, v := range h.headers {
 		if req.Header.Get(k) == "" {
 			req.Header.Set(k, v)
@@ -72,10 +78,12 @@ func newSDKClient() *sdk.Client {
 }
 
 // connectHTTP establishes one MCP session over Streamable HTTP.
+//
+// The connect handshake is bounded by connectTimeoutHTTP, but the session's
+// lifetime context is detached so subsequent tool calls aren't cancelled
+// when the timeout fires. (The SDK currently strips the cancel signal
+// internally via a notDone wrapper, but we shouldn't rely on that.)
 func connectHTTP(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*session, error) {
-	ctx, cancel := context.WithTimeout(ctx, connectTimeoutHTTP)
-	defer cancel()
-
 	hc := &http.Client{}
 	if len(cfg.Headers) > 0 {
 		hc.Transport = &headerRoundTripper{base: http.DefaultTransport, headers: cfg.Headers}
@@ -85,7 +93,7 @@ func connectHTTP(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*s
 		HTTPClient:           hc,
 		DisableStandaloneSSE: true, // we don't yet handle server-initiated messages
 	}
-	sess, err := newSDKClient().Connect(ctx, tr, nil)
+	sess, err := connectWithTimeout(ctx, connectTimeoutHTTP, tr)
 	if err != nil {
 		return nil, fmt.Errorf("mcp(%s): connect: %w", cfg.Name, err)
 	}
@@ -96,17 +104,11 @@ func connectHTTP(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*s
 }
 
 // connectStdio spawns the configured command and connects to it over stdin/stdout.
-// stderr is drained to logger with a bounded buffer.
+// stderr is drained to logger with a bounded buffer. See connectHTTP for the
+// rationale on context handling.
 func connectStdio(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*session, error) {
-	ctx, cancel := context.WithTimeout(ctx, connectTimeoutStdio)
-	defer cancel()
-
 	cmd := exec.Command(cfg.Command, cfg.Args...)
-	// Inherit parent env, overlay configured env.
-	cmd.Env = os.Environ()
-	for k, v := range cfg.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	cmd.Env = childEnv(cfg.Env)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, fmt.Errorf("mcp(%s): stderr pipe: %w", cfg.Name, err)
@@ -114,7 +116,7 @@ func connectStdio(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*
 	go drainStderr(cfg.Name, stderr, logger)
 
 	tr := &sdk.CommandTransport{Command: cmd}
-	sess, err := newSDKClient().Connect(ctx, tr, nil)
+	sess, err := connectWithTimeout(ctx, connectTimeoutStdio, tr)
 	if err != nil {
 		return nil, fmt.Errorf("mcp(%s): connect stdio %s: %w", cfg.Name, cfg.Command, err)
 	}
@@ -122,6 +124,33 @@ func connectStdio(ctx context.Context, cfg ServerConfig, logger *slog.Logger) (*
 		logger.Info("mcp connected", "server", cfg.Name, "transport", "stdio", "command", cfg.Command)
 	}
 	return &session{cfg: cfg, sdk: sess}, nil
+}
+
+// connectWithTimeout runs the SDK's Connect under a bounded ctx for the
+// handshake, but if it succeeds the resulting session is detached from
+// that ctx so subsequent calls aren't affected.
+func connectWithTimeout(parent context.Context, timeout time.Duration, tr sdk.Transport) (*sdk.ClientSession, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	sess, err := newSDKClient().Connect(ctx, tr, nil)
+	if err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
+
+// childEnv builds the environment for a stdio MCP server's child process.
+// Inherits the launcher's environment so things like PATH, HOME, NODE_PATH
+// work, then overlays the user-configured env. We don't filter the inherited
+// environment: the launcher is a single-user, single-tenant agent process
+// (per Shelley's model), so secrets in env are already trusted in this
+// boundary. Document this assumption explicitly in case it changes.
+func childEnv(extra map[string]string) []string {
+	env := os.Environ()
+	for k, v := range extra {
+		env = append(env, k+"="+v)
+	}
+	return env
 }
 
 // drainStderr forwards child-process stderr lines to logger. It silently

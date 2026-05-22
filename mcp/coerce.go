@@ -23,17 +23,19 @@ func parseJSONIf(str string, want byte) (any, bool) {
 }
 
 // coerceArgs forgives a common LLM mistake: sending stringified scalars where
-// the tool's JSON Schema declares number/integer/boolean. It walks the
-// top-level properties of schema and, for each property whose declared type
-// is number/integer/boolean and whose argument value is a string that parses
-// to the right primitive, replaces the string with the parsed value. Nested
-// objects and arrays are left alone (rare in tool input schemas, and
-// recursive coercion has more failure modes than it's worth).
+// the tool's JSON Schema declares number/integer/boolean/array/object. It
+// walks the top-level properties of schema and, for each property whose
+// declared type does not match the actual string-typed value, replaces it
+// with the parsed value when parsing succeeds. Nested objects and arrays
+// are not recursed into — over-coercion has more failure modes than it's
+// worth, and tool input schemas rarely have deep structure.
 //
 // args must be the result of json.Unmarshal into any (i.e. map[string]any).
-// Non-object args are returned unchanged.
+// Non-object args are returned unchanged. The input map is not mutated;
+// callers receive a shallow copy when any field is coerced and the original
+// pointer when nothing changed.
 func coerceArgs(args any, schema json.RawMessage, toolName string, logger *slog.Logger) any {
-	obj, ok := args.(map[string]any)
+	orig, ok := args.(map[string]any)
 	if !ok {
 		return args
 	}
@@ -45,8 +47,18 @@ func coerceArgs(args any, schema json.RawMessage, toolName string, logger *slog.
 	if err := json.Unmarshal(schema, &s); err != nil {
 		return args
 	}
+	var out map[string]any // lazily-allocated copy; nil until first coercion
+	set := func(key string, v any) {
+		if out == nil {
+			out = make(map[string]any, len(orig))
+			for k, v := range orig {
+				out[k] = v
+			}
+		}
+		out[key] = v
+	}
 	for key, prop := range s.Properties {
-		val, present := obj[key]
+		val, present := orig[key]
 		if !present {
 			continue
 		}
@@ -58,36 +70,39 @@ func coerceArgs(args any, schema json.RawMessage, toolName string, logger *slog.
 		switch {
 		case hasType(declared, "integer"):
 			if n, err := strconv.ParseInt(str, 10, 64); err == nil {
-				obj[key] = n
+				set(key, n)
 				logCoerce(logger, toolName, key, str, "integer")
 			}
 		case hasType(declared, "number"):
 			if n, err := strconv.ParseFloat(str, 64); err == nil {
-				obj[key] = n
+				set(key, n)
 				logCoerce(logger, toolName, key, str, "number")
 			}
 		case hasType(declared, "boolean"):
 			switch str {
 			case "true":
-				obj[key] = true
+				set(key, true)
 				logCoerce(logger, toolName, key, str, "boolean")
 			case "false":
-				obj[key] = false
+				set(key, false)
 				logCoerce(logger, toolName, key, str, "boolean")
 			}
 		case hasType(declared, "array"):
 			if arr, ok := parseJSONIf(str, '['); ok {
-				obj[key] = arr
+				set(key, arr)
 				logCoerce(logger, toolName, key, "<stringified JSON>", "array")
 			}
 		case hasType(declared, "object"):
 			if o, ok := parseJSONIf(str, '{'); ok {
-				obj[key] = o
+				set(key, o)
 				logCoerce(logger, toolName, key, "<stringified JSON>", "object")
 			}
 		}
 	}
-	return obj
+	if out == nil {
+		return orig
+	}
+	return out
 }
 
 // schemaTypes returns the declared JSON Schema type(s) for a property.
