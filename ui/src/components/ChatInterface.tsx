@@ -24,6 +24,7 @@ import MessageComponent from "./Message";
 import ConversationTOC from "./ConversationTOC";
 import MessageTimestamp, { formatDay } from "./MessageTimestamp";
 import MessageInput from "./MessageInput";
+import TodoPanel from "./TodoPanel";
 import DiffViewer from "./DiffViewer";
 import { focusMessageInputIfUnfocused } from "../utils/focusMessageInput";
 import MessageSelectionToolbar from "./MessageSelectionToolbar";
@@ -1055,6 +1056,9 @@ function ChatInterface({
   }, []);
   const [agentWorking, setAgentWorking] = useState(false);
   const [planMode, setPlanMode] = useState(false);
+  const [todoContent, setTodoContent] = useState("");
+  const [todoDismissed, setTodoDismissed] = useState(false);
+  const [todoMinimized, setTodoMinimized] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
   // Detect if the conversation is currently distilling
@@ -1355,6 +1359,8 @@ function ChatInterface({
     const initialTransient = messageStore.getTransient(focusedId);
     setAgentWorking(initialTransient.agentWorking);
     setPlanMode(initialTransient.planMode);
+    setTodoContent(initialTransient.todoContent);
+    setTodoDismissed(false);
     setToolProgress({});
     setStreamingText("");
 
@@ -1378,6 +1384,10 @@ function ChatInterface({
       setStreamingText(t.streamingText);
       setAgentWorking(t.agentWorking);
       setPlanMode(t.planMode);
+      if (t.todoContent !== todoContent) {
+        setTodoContent(t.todoContent);
+        if (t.todoContent) setTodoDismissed(false); // un-dismiss on change
+      }
     };
 
     const unsubStore = messageStore.subscribe(focusedId, sync);
@@ -3126,7 +3136,14 @@ function ChatInterface({
 
       {/* Messages area */}
       {/* Messages area with scroll-to-bottom button wrapper */}
-      <div className="messages-area-wrapper">
+      <div className="messages-area-wrapper" style={{position: 'relative'}}>
+        <TodoPanel
+          todoContent={todoContent}
+          dismissed={todoDismissed}
+          minimized={todoMinimized}
+          onDismiss={() => setTodoDismissed(true)}
+          onToggleMinimize={() => setTodoMinimized(m => !m)}
+        />
         <div className="messages-container scrollable" ref={messagesContainerRef}>
           {loading ? (
             showLoadingProgressUI ? (

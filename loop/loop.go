@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"shelley.exe.dev/claudetool"
 	"shelley.exe.dev/gitstate"
 	"shelley.exe.dev/llm"
 )
@@ -47,6 +48,10 @@ type Config struct {
 	// before the assistant message is recorded. Use this to flush any
 	// buffered stream deltas so they reach the UI before the full message.
 	OnStreamDone func()
+	// OnTodoChange is called when the todo list changes.
+	OnTodoChange func()
+	// SessionID identifies the conversation session for todo file storage.
+	SessionID string
 }
 
 // Loop manages a conversation turn with an LLM including tool execution and message recording.
@@ -73,6 +78,8 @@ type Loop struct {
 	retryPending     bool          // set by Retry() to re-run processLLMRequest with current history
 	planMode         bool          // when true, editing tools are blocked
 	allTools         []*llm.Tool   // full tool list (used to restore when leaving plan mode)
+	onTodoChange     func()
+	sessionID        string
 }
 
 // planModeBlockedTools is the set of tools that are disabled in plan mode.
@@ -137,6 +144,8 @@ func NewLoop(config Config) *Loop {
 		onToolProgress:   config.OnToolProgress,
 		onStreamDelta:    config.OnStreamDelta,
 		onStreamDone:     config.OnStreamDone,
+		onTodoChange:     config.OnTodoChange,
+		sessionID:        config.SessionID,
 		notify:           make(chan struct{}, 1),
 	}
 }
@@ -591,6 +600,12 @@ func (l *Loop) executeToolCalls(ctx context.Context, content []llm.Content) erro
 		}
 		toolCtx = llm.WithToolUseID(toolCtx, c.ID)
 		toolCtx = llm.WithLLMService(toolCtx, l.llm)
+		if l.sessionID != "" {
+			toolCtx = llm.WithSessionID(toolCtx, l.sessionID)
+		}
+		if l.onTodoChange != nil {
+			toolCtx = claudetool.WithTodoChangeCallback(toolCtx, l.onTodoChange)
+		}
 		startTime := time.Now()
 		result := tool.Run(toolCtx, c.ToolInput)
 		endTime := time.Now()

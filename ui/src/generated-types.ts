@@ -49,6 +49,7 @@ export interface ConversationStateForTS {
   working: boolean;
   model?: string;
   plan_mode?: boolean;
+  todo_content?: string;
 }
 
 export interface NotificationEventForTS {
@@ -56,6 +57,13 @@ export interface NotificationEventForTS {
   conversation_id: string;
   timestamp: string;
   payload?: any;
+}
+
+export interface SubagentProgressForTS {
+  conversation_id: string;
+  slug: string;
+  completed: number;
+  total: number;
 }
 
 export interface StreamResponseForTS {
@@ -66,6 +74,7 @@ export interface StreamResponseForTS {
   heartbeat?: boolean;
   notification_event?: NotificationEventForTS | null;
   max_sequence_id?: number;
+  subagent_progress?: SubagentProgressForTS | null;
 }
 
 export interface ConversationWithStateForTS {

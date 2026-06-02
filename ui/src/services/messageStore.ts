@@ -165,15 +165,24 @@ export interface ConversationCacheRecord {
 
 // ─── Transient (non-persisted) state ─────────────────────────────────────────
 
+export interface SubagentProgress {
+  conversation_id: string;
+  slug: string;
+  completed: number;
+  total: number;
+}
+
 export interface TransientState {
   toolProgress: Record<string, ToolProgress>;
   streamingText: string;
   agentWorking: boolean;
   planMode: boolean;
+  todoContent: string;
+  subagentProgressMap: Record<string, SubagentProgress>;
 }
 
 function emptyTransient(): TransientState {
-  return { toolProgress: {}, streamingText: "", agentWorking: false, planMode: false };
+  return { toolProgress: {}, streamingText: "", agentWorking: false, planMode: false, todoContent: "", subagentProgressMap: {} };
 }
 
 function emptyRecord(id: string): ConversationCacheRecord {
@@ -977,6 +986,19 @@ export class MessageStore {
     const t = this.getTransient(id);
     if (t.planMode === enabled) return;
     t.planMode = enabled;
+    this.notifyTransient(id);
+  }
+
+  setTodoContent(id: string, content: string): void {
+    const t = this.getTransient(id);
+    if (t.todoContent === content) return;
+    t.todoContent = content;
+    this.notifyTransient(id);
+  }
+
+  setSubagentProgress(id: string, progress: SubagentProgress): void {
+    const t = this.getTransient(id);
+    t.subagentProgressMap = { ...t.subagentProgressMap, [progress.conversation_id]: progress };
     this.notifyTransient(id);
   }
 
