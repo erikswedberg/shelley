@@ -1054,6 +1054,7 @@ function ChatInterface({
     setDiffCommentText(buildMessageQuote(messageId, snippet));
   }, []);
   const [agentWorking, setAgentWorking] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
   // Detect if the conversation is currently distilling
@@ -1353,6 +1354,7 @@ function ChatInterface({
     messageStore.resetTransient(focusedId);
     const initialTransient = messageStore.getTransient(focusedId);
     setAgentWorking(initialTransient.agentWorking);
+    setPlanMode(initialTransient.planMode);
     setToolProgress({});
     setStreamingText("");
 
@@ -1375,6 +1377,7 @@ function ChatInterface({
       setToolProgress(t.toolProgress);
       setStreamingText(t.streamingText);
       setAgentWorking(t.agentWorking);
+      setPlanMode(t.planMode);
     };
 
     const unsubStore = messageStore.subscribe(focusedId, sync);
@@ -1914,6 +1917,21 @@ function ChatInterface({
       setError("Failed to cancel. Please try again.");
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleTogglePlanMode = async () => {
+    if (!conversationId) return;
+    try {
+      const newMode = !planMode;
+      await fetch(`/api/conversation/${conversationId}/plan-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newMode }),
+      });
+      setPlanMode(newMode);
+    } catch (err) {
+      console.error('Failed to toggle plan mode:', err);
     }
   };
 
@@ -3227,6 +3245,15 @@ function ChatInterface({
 
       {/* Message input — hidden for archived conversations */}
       {!currentConversation?.archived && (
+        {conversationId && (
+          <button
+            className="plan-mode-toggle"
+            onClick={handleTogglePlanMode}
+            title={planMode ? 'Switch to BUILD mode' : 'Switch to PLAN mode'}
+          >
+            {planMode ? '[PLAN MODE]' : '[BUILD MODE]'}
+          </button>
+        )}
         <MessageInput
           key={conversationId || "new"}
           onSend={sendMessage}

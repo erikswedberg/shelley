@@ -88,6 +88,8 @@ type ConversationManager struct {
 	// This is explicitly managed and broadcast to subscribers when it changes.
 	agentWorking bool
 
+	planMode bool // persists across loop recreation
+
 	// distilling is true while a distillation goroutine is inserting content
 	// into this conversation. When true, queued messages should NOT be drained
 	// immediately — they must wait until distillation finishes.
@@ -198,6 +200,24 @@ func (cm *ConversationManager) EndOfTurnHooks(ctx context.Context) ([]db.Convers
 // The new value is also persisted to the conversations table so the
 // conversation list patch stream picks it up via the standard Pool.OnCommit
 // hook (no explicit notify required).
+// SetPlanMode enables or disables plan mode, updating both the manager and the active loop.
+func (cm *ConversationManager) SetPlanMode(enabled bool) {
+	cm.mu.Lock()
+	cm.planMode = enabled
+	l := cm.loop
+	cm.mu.Unlock()
+	if l != nil {
+		l.SetPlanMode(enabled)
+	}
+}
+
+// GetPlanMode returns whether plan mode is enabled.
+func (cm *ConversationManager) GetPlanMode() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.planMode
+}
+
 func (cm *ConversationManager) SetAgentWorking(working bool) {
 	cm.mu.Lock()
 	if cm.agentWorking == working {
@@ -220,6 +240,7 @@ func (cm *ConversationManager) SetAgentWorking(working bool) {
 			ConversationID: convID,
 			Working:        working,
 			Model:          modelID,
+			PlanMode:       boolPtr(cm.planMode),
 		})
 	}
 	if !working && onDone != nil {
@@ -1290,7 +1311,13 @@ func (cm *ConversationManager) ensureLoop(service llm.Service, modelID string) e
 	cm.loopCtx = processCtx
 	cm.modelID = modelID
 	cm.toolSet = toolSet
+	planMode := cm.planMode
 	cm.mu.Unlock()
+
+	// Restore plan mode on the new loop if it was set before
+	if planMode {
+		loopInstance.SetPlanMode(true)
+	}
 
 	// Persist model for legacy conversations
 	if needsPersist {
