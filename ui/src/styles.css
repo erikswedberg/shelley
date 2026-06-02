@@ -45,7 +45,7 @@ body {
   --bg-hover: #f3f4f6;
   --border: #e5e7eb;
   --code-bg: #eceef2;
-  --user-message-text: #2563eb;
+  --user-bubble-bg: #ffffff;
   --text-primary: #111827;
   --text-secondary: #6b7280;
   --text-tertiary: #9ca3af;
@@ -83,7 +83,7 @@ body {
   --bg-hover: #374151;
   --border: #374151;
   --code-bg: #414a59;
-  --user-message-text: #60a5fa;
+  --user-bubble-bg: #1f2937;
   --text-primary: #f9fafb;
   --text-secondary: #9ca3af;
   --text-tertiary: #6b7280;
@@ -899,7 +899,11 @@ button {
 .message-user .message-content {
   margin-left: auto;
   max-width: 80%;
-  color: var(--user-message-text);
+  background: var(--user-bubble-bg);
+  color: var(--text-primary);
+  font-weight: 500;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .message-agent .message-content,

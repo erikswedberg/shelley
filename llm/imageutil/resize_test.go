@@ -151,29 +151,46 @@ func TestResizeImageNoResizeNeeded(t *testing.T) {
 	}
 }
 
-func TestDecodeDimensions(t *testing.T) {
-	png := createTestPNG(t, 137, 91)
-	w, h, err := DecodeDimensions(png)
+func TestEnsureUnderMaxBytes_SmallImage(t *testing.T) {
+	data := createTestPNG(t, 100, 100)
+	result, format, err := EnsureUnderMaxBytes(data)
 	if err != nil {
-		t.Fatalf("DecodeDimensions(png) error: %v", err)
+		t.Fatalf("EnsureUnderMaxBytes() error = %v", err)
 	}
-	if w != 137 || h != 91 {
-		t.Errorf("DecodeDimensions(png) = (%d, %d), want (137, 91)", w, h)
+	if format != "image/png" {
+		t.Errorf("format = %v, want image/png", format)
 	}
+	if !bytes.Equal(result, data) {
+		t.Error("Expected original data for small image")
+	}
+}
 
+func TestEnsureUnderMaxBytes_LargeImage(t *testing.T) {
+	// Create a large JPEG that exceeds TargetRawSize (3.75MB)
+	// Use a large image with random-ish data encoded as high-quality JPEG.
+	img := image.NewNRGBA(image.Rect(0, 0, 5000, 5000))
+	pix := img.Pix
+	for i := 0; i < len(pix); i++ {
+		pix[i] = byte((i * 127) ^ (i >> 3)) // pseudo-random to defeat compression
+	}
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 64, 48)), nil); err != nil {
-		t.Fatalf("jpeg.Encode: %v", err)
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 100}); err != nil {
+		t.Fatalf("Failed to create large test image: %v", err)
 	}
-	w, h, err = DecodeDimensions(buf.Bytes())
-	if err != nil {
-		t.Fatalf("DecodeDimensions(jpeg) error: %v", err)
-	}
-	if w != 64 || h != 48 {
-		t.Errorf("DecodeDimensions(jpeg) = (%d, %d), want (64, 48)", w, h)
+	data := buf.Bytes()
+
+	if len(data) <= TargetRawSize {
+		t.Skipf("Test image too small (%d bytes), need > %d", len(data), TargetRawSize)
 	}
 
-	if _, _, err := DecodeDimensions([]byte("not an image")); err == nil {
-		t.Errorf("DecodeDimensions(garbage) succeeded; want error")
+	result, format, err := EnsureUnderMaxBytes(data)
+	if err != nil {
+		t.Fatalf("EnsureUnderMaxBytes() error = %v", err)
+	}
+	if format != "image/jpeg" {
+		t.Errorf("format = %v, want image/jpeg (should have been compressed)", format)
+	}
+	if len(result) > TargetRawSize {
+		t.Errorf("result size %d exceeds target %d", len(result), TargetRawSize)
 	}
 }
