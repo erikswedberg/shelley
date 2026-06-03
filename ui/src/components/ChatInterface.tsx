@@ -97,7 +97,8 @@ function ContextUsageBar({
 
   const percentage = maxContextTokens > 0 ? (contextWindowSize / maxContextTokens) * 100 : 0;
   const clampedPercentage = Math.min(percentage, 100);
-  const showLongConversationWarning = maxContextTokens > 0 && contextWindowSize >= maxContextTokens * 0.5;
+  const showLongConversationWarning =
+    maxContextTokens > 0 && contextWindowSize >= maxContextTokens * 0.5;
 
   const getBarColor = () => {
     if (percentage >= 90) return "var(--error-text)";
@@ -1935,13 +1936,13 @@ function ChatInterface({
     try {
       const newMode = !planMode;
       await fetch(`/api/conversation/${conversationId}/plan-mode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: newMode }),
       });
       setPlanMode(newMode);
     } catch (err) {
-      console.error('Failed to toggle plan mode:', err);
+      console.error("Failed to toggle plan mode:", err);
     }
   };
 
@@ -3136,13 +3137,13 @@ function ChatInterface({
 
       {/* Messages area */}
       {/* Messages area with scroll-to-bottom button wrapper */}
-      <div className="messages-area-wrapper" style={{position: 'relative'}}>
+      <div className="messages-area-wrapper" style={{ position: "relative" }}>
         <TodoPanel
           todoContent={todoContent}
           dismissed={todoDismissed}
           minimized={todoMinimized}
           onDismiss={() => setTodoDismissed(true)}
-          onToggleMinimize={() => setTodoMinimized(m => !m)}
+          onToggleMinimize={() => setTodoMinimized((m) => !m)}
         />
         <div className="messages-container scrollable" ref={messagesContainerRef}>
           {loading ? (
@@ -3262,33 +3263,35 @@ function ChatInterface({
 
       {/* Message input — hidden for archived conversations */}
       {!currentConversation?.archived && (
-        {conversationId && (
-          <button
-            className="plan-mode-toggle"
-            onClick={handleTogglePlanMode}
-            title={planMode ? 'Switch to BUILD mode' : 'Switch to PLAN mode'}
-          >
-            {planMode ? '[PLAN MODE]' : '[BUILD MODE]'}
-          </button>
-        )}
-        <MessageInput
-          key={conversationId || "new"}
-          onSend={sendMessage}
-          onQueue={queueMessage}
-          showQueueOption={!!conversationId}
-          canQueue={agentWorking && !!conversationId}
-          autoQueue={isDistilling && !!conversationId}
-          disabled={sending || loading}
-          autoFocus={true}
-          injectedText={terminalInjectedText || diffCommentText}
-          onClearInjectedText={() => {
-            setDiffCommentText("");
-            setTerminalInjectedText(null);
-          }}
-          persistKey={conversationId || "new-conversation"}
-          initialRows={conversationId ? 1 : 3}
-          statusSlot={conversationId && isMobile ? renderStatusContent() : undefined}
-        />
+        <>
+          {conversationId && (
+            <button
+              className="plan-mode-toggle"
+              onClick={handleTogglePlanMode}
+              title={planMode ? "Switch to BUILD mode" : "Switch to PLAN mode"}
+            >
+              {planMode ? "[PLAN MODE]" : "[BUILD MODE]"}
+            </button>
+          )}
+          <MessageInput
+            key={conversationId || "new"}
+            onSend={sendMessage}
+            onQueue={queueMessage}
+            showQueueOption={!!conversationId}
+            canQueue={agentWorking && !!conversationId}
+            autoQueue={isDistilling && !!conversationId}
+            disabled={sending || loading}
+            autoFocus={true}
+            injectedText={terminalInjectedText || diffCommentText}
+            onClearInjectedText={() => {
+              setDiffCommentText("");
+              setTerminalInjectedText(null);
+            }}
+            persistKey={conversationId || "new-conversation"}
+            initialRows={conversationId ? 1 : 3}
+            statusSlot={conversationId && isMobile ? renderStatusContent() : undefined}
+          />
+        </>
       )}
 
       {/* Directory Picker Modal */}
