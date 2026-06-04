@@ -728,6 +728,12 @@ func (s *Service) fromLLMRequest(r *llm.Request, isClaudeMax bool) *request {
 	if isClaudeMax {
 		tools = make([]*tool, len(r.Tools))
 		for i, t := range r.Tools {
+			if t.ServerSide {
+				// Server-side tools (e.g. web_search) run on Anthropic's
+				// infrastructure and require canonical names; never prefix.
+				tools[i] = fromLLMTool(t)
+				continue
+			}
 			tools[i] = fromLLMToolWithPrefix(t, toolPrefix)
 		}
 	} else {
@@ -806,6 +812,12 @@ func (s *Service) fromLLMRequestStrippingAllThinking(r *llm.Request, isClaudeMax
 	if isClaudeMax {
 		tools = make([]*tool, len(r.Tools))
 		for i, t := range r.Tools {
+			if t.ServerSide {
+				// Server-side tools (e.g. web_search) run on Anthropic's
+				// infrastructure and require canonical names; never prefix.
+				tools[i] = fromLLMTool(t)
+				continue
+			}
 			tools[i] = fromLLMToolWithPrefix(t, toolPrefix)
 		}
 	} else {
