@@ -35,11 +35,13 @@ const (
 	Claude46Sonnet = "claude-sonnet-4-6"
 	Claude47Opus   = "claude-opus-4-7"
 	Claude48Opus   = "claude-opus-4-8"
+	ClaudeFable5   = "claude-fable-5"
 )
 
 // modelMaxOutputTokens maps model names to their maximum output token limits.
 // See https://docs.anthropic.com/en/docs/about-claude/models/all-models
 var modelMaxOutputTokens = map[string]int{
+	ClaudeFable5:   128000,
 	Claude48Opus:   128000,
 	Claude47Opus:   128000,
 	Claude46Opus:   128000,
@@ -117,7 +119,7 @@ func (s *Service) maxOutputTokens() int {
 		model = DefaultModel
 	}
 	switch model {
-	case Claude48Opus, Claude47Opus, Claude46Opus:
+	case ClaudeFable5, Claude48Opus, Claude47Opus, Claude46Opus:
 		return 128000
 	case Claude4Sonnet, Claude45Sonnet, Claude46Sonnet,
 		Claude45Haiku, Claude45Opus:
@@ -315,7 +317,8 @@ type systemContent struct {
 // the legacy manual thinking (thinking: {type: "enabled", budget_tokens: N}).
 // Claude Opus 4.7 and later require adaptive thinking.
 func useAdaptiveThinking(model string) bool {
-	return model == Claude48Opus || strings.HasPrefix(model, "claude-opus-4-8-") ||
+	return model == ClaudeFable5 || strings.HasPrefix(model, "claude-fable-5-") ||
+		model == Claude48Opus || strings.HasPrefix(model, "claude-opus-4-8-") ||
 		model == Claude47Opus || strings.HasPrefix(model, "claude-opus-4-7-")
 }
 
