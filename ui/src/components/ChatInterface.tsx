@@ -3287,7 +3287,7 @@ function ChatInterface({
                 onClick={handleTogglePlanMode}
                 title={planMode ? "Switch to BUILD mode" : "Switch to PLAN mode"}
               >
-                {planMode ? "PLAN" : "BUILD"}
+                {planMode ? "[PLAN MODE]" : "[BUILD MODE]"}
               </button>
             ) : undefined}
           />

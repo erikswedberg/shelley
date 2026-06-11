@@ -10912,12 +10912,14 @@ kbd {
   border: none;
   cursor: pointer;
   font-family: monospace;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-secondary);
-  padding: 2px 6px;
+  padding: 2px 8px;
+  margin-left: 4px;
   opacity: 0.6;
   transition: opacity 0.15s;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 .plan-mode-toggle:hover {
   opacity: 1;
