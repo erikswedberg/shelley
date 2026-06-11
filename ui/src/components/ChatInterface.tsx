@@ -3264,15 +3264,6 @@ function ChatInterface({
       {/* Message input — hidden for archived conversations */}
       {!currentConversation?.archived && (
         <>
-          {conversationId && (
-            <button
-              className="plan-mode-toggle"
-              onClick={handleTogglePlanMode}
-              title={planMode ? "Switch to BUILD mode" : "Switch to PLAN mode"}
-            >
-              {planMode ? "[PLAN MODE]" : "[BUILD MODE]"}
-            </button>
-          )}
           <MessageInput
             key={conversationId || "new"}
             onSend={sendMessage}
@@ -3290,6 +3281,15 @@ function ChatInterface({
             persistKey={conversationId || "new-conversation"}
             initialRows={conversationId ? 1 : 3}
             statusSlot={conversationId && isMobile ? renderStatusContent() : undefined}
+            trailingSlot={conversationId ? (
+              <button
+                className="plan-mode-toggle"
+                onClick={handleTogglePlanMode}
+                title={planMode ? "Switch to BUILD mode" : "Switch to PLAN mode"}
+              >
+                {planMode ? "PLAN" : "BUILD"}
+              </button>
+            ) : undefined}
           />
         </>
       )}

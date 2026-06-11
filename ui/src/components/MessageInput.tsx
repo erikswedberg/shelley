@@ -64,6 +64,8 @@ interface MessageInputProps {
   initialRows?: number;
   /** Status bar content rendered inline on mobile (hidden on desktop) */
   statusSlot?: React.ReactNode;
+  /** Extra content rendered after the send button (e.g. plan/build toggle) */
+  trailingSlot?: React.ReactNode;
 }
 
 const PERSIST_KEY_PREFIX = "shelley_draft_";
@@ -116,6 +118,7 @@ function MessageInput({
   persistKey,
   initialRows = 1,
   statusSlot,
+  trailingSlot,
 }: MessageInputProps) {
   const { t } = useI18n();
   const [message, setMessage] = useState(() => {
@@ -900,6 +903,7 @@ function MessageInput({
               </button>
             )}
           </div>
+          {trailingSlot}
         </div>
       </form>
     </div>
