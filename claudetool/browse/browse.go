@@ -971,10 +971,16 @@ func prepareImageForModel(ctx context.Context, imageData []byte, detectedFormat,
 	}
 
 	if maxBytes := svc.MaxImageBytes(); maxBytes > 0 && len(imageData) > maxBytes {
-		return nil, "", false, fmt.Errorf(
-			"image too large for model: %s is %d bytes (after any auto-resize), model limit is %d bytes; recompress the image (e.g. lower JPEG quality) and try again",
-			source, len(imageData), maxBytes,
-		)
+		// Compress instead of erroring — cascade through quality/size reductions.
+		compressed, mediaType, err := imageutil.EnsureUnderMaxBytes(imageData)
+		if err != nil {
+			return nil, "", false, fmt.Errorf(
+				"image too large for model: %s is %d bytes, limit is %d bytes, and compression failed: %w",
+				source, len(imageData), maxBytes, err,
+			)
+		}
+		format := strings.TrimPrefix(mediaType, "image/")
+		return compressed, format, true, nil
 	}
 	return imageData, detectedFormat, resized, nil
 }
