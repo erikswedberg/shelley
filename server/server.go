@@ -55,6 +55,15 @@ type ConversationState struct {
 	Working        bool   `json:"working"`
 	Model          string `json:"model,omitempty"`
 	PlanMode       *bool  `json:"plan_mode,omitempty"`
+	TodoContent    string `json:"todo_content,omitempty"`
+}
+
+// SubagentProgress reports a subagent's todo list completion to the parent.
+type SubagentProgress struct {
+	ConversationID string `json:"conversation_id"`
+	Slug           string `json:"slug"`
+	Completed      int    `json:"completed"`
+	Total          int    `json:"total"`
 }
 
 func boolPtr(b bool) *bool { return &b }
@@ -119,6 +128,8 @@ type StreamResponse struct {
 	// it to hide a loading spinner, or — for "peek and disconnect" use
 	// cases like notification previews — to close the connection.
 	SnapshotComplete bool `json:"snapshot_complete,omitempty"`
+	// SubagentProgress reports a subagent's todo completion to the parent UI.
+	SubagentProgress *SubagentProgress `json:"subagent_progress,omitempty"`
 }
 
 // LLMProvider is an interface for getting LLM services
@@ -929,6 +940,9 @@ func (s *Server) getOrCreateSubagentConversationManager(ctx context.Context, con
 		// by injecting a user message into the parent's loop so the LLM sees it.
 		manager.onDone = func() {
 			go s.notifyParentSubagentDone(conversationID)
+		}
+		manager.onTodoProgress = func(completed, total int) {
+			go s.notifyParentSubagentProgress(conversationID, completed, total)
 		}
 		// See getOrCreateConversationManager for why we don't hold s.mu here.
 		if err := manager.Hydrate(ctx); err != nil {

@@ -24,6 +24,7 @@ import MessageComponent from "./Message";
 import ConversationTOC from "./ConversationTOC";
 import MessageTimestamp, { formatDay } from "./MessageTimestamp";
 import MessageInput from "./MessageInput";
+import TodoPanel from "./TodoPanel";
 import { useDraftAutosave } from "../hooks/useDraftAutosave";
 import DiffViewer from "./DiffViewer";
 import { focusMessageInputIfUnfocused } from "../utils/focusMessageInput";
@@ -98,7 +99,8 @@ function ContextUsageBar({
 
   const percentage = maxContextTokens > 0 ? (contextWindowSize / maxContextTokens) * 100 : 0;
   const clampedPercentage = Math.min(percentage, 100);
-  const showLongConversationWarning = maxContextTokens > 0 && contextWindowSize >= maxContextTokens * 0.5;
+  const showLongConversationWarning =
+    maxContextTokens > 0 && contextWindowSize >= maxContextTokens * 0.5;
 
   const getBarColor = () => {
     if (percentage >= 90) return "var(--error-text)";
@@ -1088,6 +1090,9 @@ function ChatInterface({
   }, []);
   const [agentWorking, setAgentWorking] = useState(false);
   const [planMode, setPlanMode] = useState(false);
+  const [todoContent, setTodoContent] = useState("");
+  const [todoDismissed, setTodoDismissed] = useState(false);
+  const [todoMinimized, setTodoMinimized] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
   // Detect if the conversation is currently distilling
@@ -1388,6 +1393,8 @@ function ChatInterface({
     const initialTransient = messageStore.getTransient(focusedId);
     setAgentWorking(initialTransient.agentWorking);
     setPlanMode(initialTransient.planMode);
+    setTodoContent(initialTransient.todoContent);
+    setTodoDismissed(false);
     setToolProgress({});
     setStreamingText("");
 
@@ -1411,6 +1418,10 @@ function ChatInterface({
       setStreamingText(t.streamingText);
       setAgentWorking(t.agentWorking);
       setPlanMode(t.planMode);
+      if (t.todoContent !== todoContent) {
+        setTodoContent(t.todoContent);
+        if (t.todoContent) setTodoDismissed(false); // un-dismiss on change
+      }
     };
 
     const unsubStore = messageStore.subscribe(focusedId, sync);
@@ -2003,13 +2014,13 @@ function ChatInterface({
     try {
       const newMode = !planMode;
       await fetch(`/api/conversation/${conversationId}/plan-mode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: newMode }),
       });
       setPlanMode(newMode);
     } catch (err) {
-      console.error('Failed to toggle plan mode:', err);
+      console.error("Failed to toggle plan mode:", err);
     }
   };
 
@@ -3341,7 +3352,14 @@ function ChatInterface({
 
       {/* Messages area */}
       {/* Messages area with scroll-to-bottom button wrapper */}
-      <div className="messages-area-wrapper">
+      <div className="messages-area-wrapper" style={{ position: "relative" }}>
+        <TodoPanel
+          todoContent={todoContent}
+          dismissed={todoDismissed}
+          minimized={todoMinimized}
+          onDismiss={() => setTodoDismissed(true)}
+          onToggleMinimize={() => setTodoMinimized((m) => !m)}
+        />
         <div className="messages-container scrollable" ref={messagesContainerRef}>
           {loading ? (
             showLoadingProgressUI ? (

@@ -193,6 +193,9 @@ func NewOrchestratorToolSet(ctx context.Context, cfg OrchestratorToolSetConfig) 
 	outputIframeTool := &OutputIframeTool{WorkingDir: wd}
 	tools = append(tools, outputIframeTool.Tool())
 
+	// Todo list tools
+	tools = append(tools, TodoRead, TodoWrite)
+
 	// Build available models list
 	var availableModels []AvailableModel
 	if cfg.BuildAvailableModels != nil {
