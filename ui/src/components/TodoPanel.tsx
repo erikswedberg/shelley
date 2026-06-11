@@ -12,6 +12,7 @@ interface TodoList {
 
 interface TodoPanelProps {
   todoContent: string;
+  dismissed: boolean;
   minimized: boolean;
   onToggleMinimize: () => void;
   onDismiss: () => void;
@@ -40,7 +41,8 @@ function StatusIcon({ status }: { status: string }) {
   );
 }
 
-export default function TodoPanel({ todoContent, minimized, onToggleMinimize, onDismiss }: TodoPanelProps) {
+export default function TodoPanel({ todoContent, dismissed, minimized, onToggleMinimize, onDismiss }: TodoPanelProps) {
+  if (dismissed) return null;
 
   let todoList: TodoList | null = null;
   try {
