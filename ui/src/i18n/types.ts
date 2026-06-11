@@ -94,6 +94,7 @@ export interface TranslationKeys {
   restore: string;
   deletePermanently: string;
   confirmDelete: string;
+  confirmDeleteShort: string;
   duplicateName: string;
   agentIsWorking: string;
   subagentIsWorking: string;
@@ -173,6 +174,8 @@ export interface TranslationKeys {
   notifications: string;
   browserNotifications: string;
   faviconBadge: string;
+  exeDevPushNotifications: string;
+  exeDevPushNotificationsDescription: string;
   editChannel: string;
   addChannel: string;
   customChannels: string;
@@ -220,6 +223,7 @@ export interface TranslationKeys {
 
   // Status Bar
   modelLabel: string;
+  thinkingLabel: string;
   dirLabel: string;
 
   // AGENTS.md editor

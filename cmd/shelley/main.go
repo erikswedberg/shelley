@@ -293,6 +293,12 @@ func setupDatabase(dbPath string, logger *slog.Logger) *db.DB {
 	}
 	logger.Debug("Database migrations completed successfully")
 
+	// Truncate the WAL at startup. The -wal file can grow large during
+	// normal operation and a PASSIVE auto-checkpoint never shrinks it.
+	if err := database.Checkpoint(context.Background()); err != nil {
+		logger.Warn("Failed to checkpoint WAL at startup", "error", err)
+	}
+
 	// agent_working is runtime-only state. If the previous process exited
 	// while a loop was running, the column can be left TRUE for one or more
 	// conversations. Clear them so the conversation list reflects reality.

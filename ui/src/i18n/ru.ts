@@ -94,6 +94,7 @@ export const ru: TranslationKeys = {
   restore: "Восстановить",
   deletePermanently: "Удалить навсегда",
   confirmDelete: "Вы уверены? Это действие нельзя отменить.",
+  confirmDeleteShort: "Удалить?",
   duplicateName: "Диалог с таким именем уже существует",
   agentIsWorking: "Агент работает...",
   subagentIsWorking: "Субагент работает...",
@@ -177,6 +178,9 @@ export const ru: TranslationKeys = {
   notifications: "Уведомления",
   browserNotifications: "Уведомления браузера",
   faviconBadge: "Значок на иконке",
+  exeDevPushNotifications: "Push-уведомления",
+  exeDevPushNotificationsDescription:
+    "Уведомления на ваши устройства через приложение exe.dev по завершении агента",
   editChannel: "Редактировать канал",
   addChannel: "Добавить канал",
   customChannels: "Пользовательские каналы",
@@ -225,6 +229,7 @@ export const ru: TranslationKeys = {
 
   // Status Bar
   modelLabel: "Модель:",
+  thinkingLabel: "Усилие:",
   dirLabel: "Каталог:",
 
   // Sidebar buttons

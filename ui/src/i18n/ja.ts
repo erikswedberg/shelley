@@ -94,6 +94,7 @@ export const ja: TranslationKeys = {
   restore: "復元",
   deletePermanently: "完全に削除",
   confirmDelete: "本当に削除しますか？この操作は元に戻せません。",
+  confirmDeleteShort: "削除？",
   duplicateName: "同じ名前の会話がすでに存在します",
   agentIsWorking: "エージェントが作業中...",
   subagentIsWorking: "サブエージェントが作業中...",
@@ -177,6 +178,8 @@ export const ja: TranslationKeys = {
   notifications: "通知",
   browserNotifications: "ブラウザ通知",
   faviconBadge: "ファビコンバッジ",
+  exeDevPushNotifications: "プッシュ通知",
+  exeDevPushNotificationsDescription: "エージェント完了時に exe.dev アプリでデバイスに通知",
   editChannel: "チャンネルを編集",
   addChannel: "チャンネルを追加",
   customChannels: "カスタムチャンネル",
@@ -226,6 +229,7 @@ export const ja: TranslationKeys = {
 
   // Status Bar
   modelLabel: "モデル:",
+  thinkingLabel: "思考量:",
   dirLabel: "ディレクトリ:",
 
   // Sidebar buttons

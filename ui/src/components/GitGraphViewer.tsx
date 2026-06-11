@@ -935,11 +935,20 @@ export default function GitGraphViewer({
                         </circle>
                       </svg>
                       <span className="git-graph-main">
-                        {c.refs.length > 0 && (
+                        {(c.refs.length > 0 ||
+                          (c.isMergeBase && !c.refs.some((r) => r.includes("/")))) && (
                           <span className="git-graph-refs">
                             {c.refs.map((r) => (
                               <RefBadge key={r} name={r} />
                             ))}
+                            {c.isMergeBase && !c.refs.some((r) => r.includes("/")) && (
+                              <span
+                                className="git-graph-ref git-graph-ref-mergebase"
+                                title="Merge-base with @{upstream}"
+                              >
+                                merge-base
+                              </span>
+                            )}
                           </span>
                         )}
                         <span className="git-graph-subject">{c.subject}</span>
@@ -1044,11 +1053,22 @@ export default function GitGraphViewer({
                       )}
                     </span>
                   </div>
-                  {selectedCommit.refs.length > 0 && (
+                  {(selectedCommit.refs.length > 0 ||
+                    (selectedCommit.isMergeBase &&
+                      !selectedCommit.refs.some((r) => r.includes("/")))) && (
                     <div className="git-graph-detail-refs">
                       {selectedCommit.refs.map((r) => (
                         <RefBadge key={r} name={r} />
                       ))}
+                      {selectedCommit.isMergeBase &&
+                        !selectedCommit.refs.some((r) => r.includes("/")) && (
+                          <span
+                            className="git-graph-ref git-graph-ref-mergebase"
+                            title="Merge-base with @{upstream}"
+                          >
+                            merge-base
+                          </span>
+                        )}
                     </div>
                   )}
                   {data?.gitRoot && (

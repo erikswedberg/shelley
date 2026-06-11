@@ -83,11 +83,16 @@ function isNewPath(): boolean {
 const initialSlugFromUrl = getSlugFromPath();
 const initialIsNew = isNewPath();
 
-// Update the URL to reflect the current conversation slug
+// Update the URL to reflect the current conversation slug. Drafts (no real
+// slug yet) use their conversation_id so reload restores the draft.
 function updateUrlWithSlug(conversation: Conversation | undefined) {
   const currentSlug = getSlugFromPath();
-  const newSlug =
-    conversation?.slug && !isGeneratedId(conversation.slug) ? conversation.slug : null;
+  let newSlug: string | null = null;
+  if (conversation?.slug && !isGeneratedId(conversation.slug)) {
+    newSlug = conversation.slug;
+  } else if (conversation?.is_draft) {
+    newSlug = conversation.conversation_id;
+  }
 
   if (currentSlug !== newSlug) {
     if (newSlug) {
@@ -207,7 +212,8 @@ function App() {
       if (!urlSlug) return null;
 
       // First check if we already have this conversation in our list
-      const existingConv = convs.find((c) => c.slug === urlSlug);
+      // (match by slug OR conversation_id — drafts use their id in the URL).
+      const existingConv = convs.find((c) => c.slug === urlSlug || c.conversation_id === urlSlug);
       if (existingConv) return existingConv;
 
       // Otherwise, try to fetch by slug (may be a subagent)
@@ -366,7 +372,8 @@ function App() {
       }
 
       // Try to find in existing conversations first
-      const existingConv = conversations.find((c) => c.slug === slug);
+      // (match by slug OR conversation_id — drafts use their id in the URL).
+      const existingConv = conversations.find((c) => c.slug === slug || c.conversation_id === slug);
       if (existingConv) {
         setCurrentConversationId(existingConv.conversation_id);
         setViewedConversation(existingConv);
@@ -678,16 +685,19 @@ function App() {
     conversationType?: "normal" | "orchestrator",
     subagentBackend?: "shelley" | "claude-cli" | "codex-cli",
     toolOverrides?: Record<string, "on" | "off">,
+    thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
   ) => {
     try {
       const hasOverrides = toolOverrides && Object.keys(toolOverrides).length > 0;
+      const hasThinking = !!thinkingLevel;
       const convOpts =
-        conversationType === "orchestrator" || hasOverrides
+        conversationType === "orchestrator" || hasOverrides || hasThinking
           ? {
               ...(conversationType === "orchestrator"
                 ? { type: "orchestrator" as const, subagent_backend: subagentBackend || "shelley" }
                 : {}),
               ...(hasOverrides ? { tool_overrides: toolOverrides } : {}),
+              ...(hasThinking ? { thinking_level: thinkingLevel } : {}),
             }
           : undefined;
       const response = await api.sendMessageWithNewConversation({
@@ -772,6 +782,7 @@ function App() {
             reconnectNonce={reconnectNonce}
             onOpenDrawer={() => setDrawerOpen(true)}
             onNewConversation={startNewConversation}
+            onSelectConversation={selectConversation}
             onArchiveConversation={async (conversationId: string) => {
               await api.archiveConversation(conversationId);
               handleConversationArchived(conversationId);
@@ -779,6 +790,12 @@ function App() {
             currentConversation={currentConversation}
             onConversationUpdate={updateConversation}
             onFirstMessage={handleFirstMessage}
+            onDraftCreated={(id: string) => {
+              // Lazy-created draft conversation — promote the URL/state to
+              // point at it. The patch stream surfaces the row in the
+              // drawer; we just track it as the current conversation.
+              setCurrentConversationId(id);
+            }}
             onDistillNewGeneration={handleDistillNewGeneration}
             mostRecentCwd={mostRecentCwd}
             isDrawerCollapsed={drawerCollapsed}

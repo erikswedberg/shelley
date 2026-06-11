@@ -97,6 +97,9 @@ func InitPoolDB(db *sql.DB, numConns int) error {
 
 	initQueries := []string{
 		"PRAGMA journal_mode=wal;",
+		// Cap the -wal file so checkpoints truncate it back to this size
+		// instead of leaving it at its high-water mark (64 MiB).
+		"PRAGMA journal_size_limit=67108864;",
 		"PRAGMA busy_timeout=1000;",
 		"PRAGMA foreign_keys=ON;",
 	}

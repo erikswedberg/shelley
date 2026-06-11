@@ -206,6 +206,20 @@ func (db *DB) Pool() *Pool {
 	return db.pool
 }
 
+// Checkpoint runs a truncating WAL checkpoint, flushing the write-ahead log
+// back into the main database file and shrinking the -wal file on disk.
+//
+// In WAL mode SQLite's default auto-checkpoint is PASSIVE: it copies committed
+// frames into the main db but never shrinks the -wal file, which therefore
+// grows to (and stays at) its high-water mark. Run this periodically and at
+// startup to keep the -wal file bounded.
+func (db *DB) Checkpoint(ctx context.Context) error {
+	if err := db.pool.Exec(ctx, "PRAGMA wal_checkpoint(TRUNCATE);"); err != nil {
+		return fmt.Errorf("wal checkpoint: %w", err)
+	}
+	return nil
+}
+
 // WithTx runs a function within a database transaction
 func (db *DB) WithTx(ctx context.Context, fn func(*generated.Queries) error) error {
 	return db.pool.Tx(ctx, func(ctx context.Context, tx *Tx) error {
@@ -242,6 +256,10 @@ type ConversationOptions struct {
 	DisableAllTools bool `json:"disable_all_tools,omitempty"`
 	// EndOfTurnHooks are posted to whenever a top-level agent turn ends.
 	EndOfTurnHooks []ConversationHook `json:"end_of_turn_hooks,omitempty"`
+	// ThinkingLevel is the user-facing reasoning level for this conversation.
+	// One of "off", "minimal", "low", "medium", "high", "xhigh". Empty string
+	// means "use the service default". See llm.ParseThinkingLevel.
+	ThinkingLevel string `json:"thinking_level,omitempty"`
 }
 
 // IsOrchestrator returns true if the conversation is in orchestrator mode.
@@ -302,7 +320,7 @@ func (db *DB) RegisterConversationHook(ctx context.Context, conversationID strin
 	return opts, err
 }
 
-// CreateConversation creates a new conversation with an optional slug
+// CreateConversation creates a new conversation with an optional slug.
 func (db *DB) CreateConversation(ctx context.Context, slug *string, userInitiated bool, cwd, model *string, opts ConversationOptions) (*generated.Conversation, error) {
 	conversationID, err := generateConversationID()
 	if err != nil {
@@ -327,6 +345,76 @@ func (db *DB) CreateConversation(ctx context.Context, slug *string, userInitiate
 	})
 	return &conversation, err
 }
+
+// CreateDraftConversation creates a new draft conversation. Drafts have
+// no messages; their body lives in the draft column until promoted by
+// the chat handler. They appear in the normal conversation list and can
+// be deleted like any other conversation.
+func (db *DB) CreateDraftConversation(ctx context.Context, cwd, model *string, opts ConversationOptions, draft string) (*generated.Conversation, error) {
+	conversationID, err := generateConversationID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate conversation ID: %w", err)
+	}
+	optsJSON, err := json.Marshal(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal conversation options: %w", err)
+	}
+	var conversation generated.Conversation
+	err = db.pool.Tx(ctx, func(ctx context.Context, tx *Tx) error {
+		q := generated.New(tx.Conn())
+		conversation, err = q.CreateDraftConversation(ctx, generated.CreateDraftConversationParams{
+			ConversationID:      conversationID,
+			Slug:                nil,
+			Cwd:                 cwd,
+			Model:               model,
+			ConversationOptions: string(optsJSON),
+			Draft:               draft,
+		})
+		return err
+	})
+	return &conversation, err
+}
+
+// UpdateDraft replaces the draft text of a draft conversation. Returns
+// ErrConversationNotDraft if the conversation no longer exists as a draft
+// (e.g. it was deleted, or promoted by a concurrent chat post).
+func (db *DB) UpdateDraft(ctx context.Context, conversationID, draft string) (*generated.Conversation, error) {
+	var conv generated.Conversation
+	err := db.pool.Tx(ctx, func(ctx context.Context, tx *Tx) error {
+		q := generated.New(tx.Conn())
+		var err error
+		conv, err = q.UpdateConversationDraft(ctx, generated.UpdateConversationDraftParams{
+			ConversationID: conversationID,
+			Draft:          draft,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConversationNotDraft
+		}
+		return err
+	})
+	return &conv, err
+}
+
+// PromoteDraft clears is_draft and draft on a conversation. Callers gate
+// on the conversation's IsDraft flag (loaded in the same handler) before
+// invoking this, so the underlying UPDATE always matches a row. Returns
+// ErrConversationNotDraft when the gate is wrong (e.g. concurrent
+// promote) so the caller can decide whether to retry or fail.
+func (db *DB) PromoteDraft(ctx context.Context, conversationID string) error {
+	return db.pool.Tx(ctx, func(ctx context.Context, tx *Tx) error {
+		q := generated.New(tx.Conn())
+		_, err := q.PromoteDraftConversation(ctx, conversationID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConversationNotDraft
+		}
+		return err
+	})
+}
+
+// ErrConversationNotDraft is returned by PromoteDraft when the
+// conversation is not (or is no longer) a draft. Callers that gate on
+// IsDraft should treat this as a race condition / 4xx, not a 500.
+var ErrConversationNotDraft = errors.New("conversation is not a draft")
 
 // GetConversationByID retrieves a conversation by its ID
 func (db *DB) GetConversationByID(ctx context.Context, conversationID string) (*generated.Conversation, error) {
@@ -1164,6 +1252,51 @@ func (db *DB) DeleteConversation(ctx context.Context, conversationID string) err
 		}
 		return q.DeleteConversation(ctx, conversationID)
 	})
+}
+
+// ForkConversation creates a new top-level conversation that copies the source
+// conversation's current-generation messages up to and including
+// cutoffSequenceID. The copies are renumbered to generation 1 so the fork
+// starts a fresh generation history (compaction etc. begin anew). The new
+// conversation inherits the source's cwd, model, and options. Its slug starts
+// nil; the caller assigns one. Returns the new conversation.
+func (db *DB) ForkConversation(ctx context.Context, sourceConversationID string, cutoffSequenceID int64) (*generated.Conversation, error) {
+	conversationID, err := generateConversationID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate conversation ID: %w", err)
+	}
+	var conversation generated.Conversation
+	err = db.pool.Tx(ctx, func(ctx context.Context, tx *Tx) error {
+		q := generated.New(tx.Conn())
+		source, err := q.GetConversation(ctx, sourceConversationID)
+		if err != nil {
+			return fmt.Errorf("failed to load source conversation: %w", err)
+		}
+		conversation, err = q.CreateConversation(ctx, generated.CreateConversationParams{
+			ConversationID:      conversationID,
+			Slug:                nil,
+			UserInitiated:       true,
+			Cwd:                 source.Cwd,
+			Model:               source.Model,
+			ConversationOptions: source.ConversationOptions,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create forked conversation: %w", err)
+		}
+		// Copy only the source's active (current) generation, renumbered to
+		// generation 1 in the fork. The new conversation keeps CreateConversation's
+		// default current_generation of 1.
+		if err := q.CopyMessagesForFork(ctx, generated.CopyMessagesForForkParams{
+			DestConversationID:   conversationID,
+			SourceConversationID: sourceConversationID,
+			CutoffSequenceID:     cutoffSequenceID,
+			SourceGeneration:     source.CurrentGeneration,
+		}); err != nil {
+			return fmt.Errorf("failed to copy messages: %w", err)
+		}
+		return nil
+	})
+	return &conversation, err
 }
 
 // CreateSubagentConversation creates a new subagent conversation with a parent

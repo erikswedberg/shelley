@@ -3682,7 +3682,6 @@ svg {
 .status-bar-new-conversation {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -3701,7 +3700,7 @@ svg {
   }
 
   .status-field-label {
-    width: 2.5rem;
+    width: 4rem;
     text-align: right;
   }
 }
@@ -3730,6 +3729,11 @@ svg {
   flex: 1 1 auto;
   min-width: 150px;
   max-width: 300px;
+}
+
+.status-field-thinking {
+  flex: 0 0 auto;
+  min-width: 140px;
 }
 
 .status-field-cwd {
@@ -4323,6 +4327,10 @@ svg {
   .status-field-model {
     min-width: 120px;
     max-width: none;
+  }
+
+  .status-field-thinking {
+    min-width: 120px;
   }
 
   .status-field-cwd {
@@ -8795,6 +8803,46 @@ kbd {
   height: 1rem;
 }
 
+/* Inline delete confirmation rendered in place of the trash icon. */
+.drawer-delete-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  background: var(--gray-200);
+}
+
+.dark .drawer-delete-confirm {
+  background: var(--gray-700);
+}
+
+.conversation-item.active .drawer-delete-confirm {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.drawer-delete-confirm-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.conversation-item.active .drawer-delete-confirm-label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.drawer-delete-confirm .btn-icon-sm {
+  opacity: 1;
+}
+
+.drawer-delete-confirm-yes {
+  color: var(--red-600);
+}
+
+.dark .drawer-delete-confirm-yes {
+  color: var(--red-400, #f87171);
+}
+
 .drawer-git-info {
   display: flex;
   align-items: center;
@@ -9074,6 +9122,13 @@ kbd {
 .git-graph-ref-remote {
   background: #bfdbfe;
   color: #1e3a8a;
+}
+
+.git-graph-ref-mergebase {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-color);
+  font-style: italic;
 }
 
 .git-graph-ref-tag {

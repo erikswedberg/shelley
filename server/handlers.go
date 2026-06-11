@@ -725,6 +725,9 @@ func (s *Server) serveIndexWithInit(w http.ResponseWriter, r *http.Request, fs h
 
 	// Inject notification channel type metadata for the settings modal
 	initData["notification_channel_types"] = s.getNotificationChannelTypes()
+	// Whether this VM has an exe.dev "notify" integration, so the UI can show
+	// the auto-configured push-notification toggle.
+	initData["exe_notify_available"] = s.exeNotifyAvailable()
 	initData["cli_agents"] = detectCLIAgents()
 	if s.Banner != "" {
 		initData["banner"] = s.Banner
@@ -981,8 +984,14 @@ func (s *Server) conversationMux() *http.ServeMux {
 	mux.HandleFunc("POST /{id}/cancel-queued", func(w http.ResponseWriter, r *http.Request) {
 		s.handleCancelQueued(w, r, r.PathValue("id"))
 	})
+	mux.HandleFunc("PUT /{id}/draft", func(w http.ResponseWriter, r *http.Request) {
+		s.handleUpdateDraft(w, r, r.PathValue("id"))
+	})
 	mux.HandleFunc("POST /{id}/new-generation", func(w http.ResponseWriter, r *http.Request) {
 		s.handleStartNewGeneration(w, r, r.PathValue("id"))
+	})
+	mux.HandleFunc("POST /{id}/fork", func(w http.ResponseWriter, r *http.Request) {
+		s.handleForkConversation(w, r, r.PathValue("id"))
 	})
 	return mux
 }
@@ -1094,10 +1103,38 @@ func (s *Server) handleChatConversation(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Get LLM service for the requested model
+	// Load the conversation up front; we need its persisted model to
+	// resolve an omitted `model` (see below) and the draft branches need
+	// it too.
+	existing, err := s.db.GetConversationByID(ctx, conversationID)
+	if err != nil {
+		s.logger.Error("Failed to load conversation", "conversationID", conversationID, "error", err)
+		http.Error(w, "Conversation not found", http.StatusNotFound)
+		return
+	}
+
+	// Resolve the model. Precedence:
+	//  1. an explicit `model` in the request (for a draft, this also
+	//     retargets the conversation via the promote branch below),
+	//  2. the conversation's own persisted model (a running loop is pinned
+	//     to its model, so any other choice would 400 with
+	//     errConversationModelMismatch),
+	//  3. the host's effective default (conversations that never recorded a
+	//     model).
+	//
+	// Clients that don't track a conversation's model — notably the iOS
+	// push "Reply" handler, which fires from a background launch with no
+	// loaded chat state — send an empty `model`. Before this, the empty
+	// model resolved straight to effectiveDefaultModel, so a reply to any
+	// conversation running a non-default model was silently rejected and
+	// never reached the agent.
 	modelID := req.Model
 	if modelID == "" {
-		modelID = s.effectiveDefaultModel(s.getModelList())
+		if existing.Model != nil && *existing.Model != "" {
+			modelID = *existing.Model
+		} else {
+			modelID = s.effectiveDefaultModel(s.getModelList())
+		}
 	}
 
 	llmService, err := s.llmManager.GetService(modelID)
@@ -1108,6 +1145,33 @@ func (s *Server) handleChatConversation(w http.ResponseWriter, r *http.Request, 
 	}
 
 	userEmail := r.Header.Get("X-ExeDev-Email")
+
+	// Drafts can have their model/cwd retargeted right up to send. Apply
+	// the overrides under the same validation the new-conversation path
+	// runs, then promote (clearing is_draft and the draft body). For
+	// non-drafts these branches are skipped.
+	if existing.IsDraft {
+		if req.Cwd != "" {
+			if err := s.db.UpdateConversationCwd(ctx, conversationID, req.Cwd); err != nil {
+				s.logger.Error("Failed to update draft cwd before promote", "conversationID", conversationID, "error", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+		if req.Model != "" {
+			// req.Model was already validated against the LLM manager above.
+			if err := s.db.ForceUpdateConversationModel(ctx, conversationID, req.Model); err != nil {
+				s.logger.Error("Failed to update draft model before promote", "conversationID", conversationID, "error", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+		if err := s.db.PromoteDraft(ctx, conversationID); err != nil {
+			s.logger.Error("Failed to promote draft", "conversationID", conversationID, "error", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	// Get or create conversation manager
 	manager, err := s.getOrCreateConversationManager(ctx, conversationID, userEmail)
@@ -1263,25 +1327,9 @@ func (s *Server) handleNewConversation(w http.ResponseWriter, r *http.Request) {
 	var convOpts db.ConversationOptions
 	if req.ConversationOptions != nil {
 		convOpts = *req.ConversationOptions
-		if convOpts.Type != "" && convOpts.Type != "normal" && convOpts.Type != "orchestrator" {
-			http.Error(w, fmt.Sprintf("Invalid conversation options type: %s", convOpts.Type), http.StatusBadRequest)
+		if msg := validateConversationOptions(convOpts); msg != "" {
+			http.Error(w, msg, http.StatusBadRequest)
 			return
-		}
-		if convOpts.SubagentBackend != "" && convOpts.SubagentBackend != "shelley" && convOpts.SubagentBackend != "claude-cli" && convOpts.SubagentBackend != "codex-cli" {
-			http.Error(w, fmt.Sprintf("Invalid subagent_backend: %s; must be one of: shelley, claude-cli, codex-cli", convOpts.SubagentBackend), http.StatusBadRequest)
-			return
-		}
-		for name, v := range convOpts.ToolOverrides {
-			if v != "on" && v != "off" {
-				http.Error(w, fmt.Sprintf("Invalid tool_overrides[%s]=%q; must be \"on\" or \"off\"", name, v), http.StatusBadRequest)
-				return
-			}
-		}
-		for _, hook := range convOpts.EndOfTurnHooks {
-			if err := validateConversationHookURL(hook.URL); err != nil {
-				http.Error(w, fmt.Sprintf("Invalid end_of_turn_hooks url %q: %v", hook.URL, err), http.StatusBadRequest)
-				return
-			}
 		}
 	}
 
@@ -2088,9 +2136,9 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 }
 
 // handleVersion returns build information plus the capabilities list as
-// JSON. The capabilities slot exists so clients can negotiate optional,
-// additive features without reshaping the response; the set is currently
-// empty.
+// JSON. The capabilities slot lets clients negotiate optional, additive
+// features without reshaping the response. See version.Capabilities for
+// the current set.
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -2443,11 +2491,16 @@ func (s *Server) handleConversationBySlug(w http.ResponseWriter, r *http.Request
 
 	ctx := r.Context()
 	conversation, err := s.db.GetConversationBySlug(ctx, slug)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+	if err != nil && strings.Contains(err.Error(), "not found") {
+		// Fall back to conversation_id lookup so draft URLs (/c/<id>)
+		// resolve before the conversation list is in memory.
+		conversation, err = s.db.GetConversationByID(ctx, slug)
+		if err != nil && strings.Contains(err.Error(), "not found") {
 			http.Error(w, "Conversation not found", http.StatusNotFound)
 			return
 		}
+	}
+	if err != nil {
 		s.logger.Error("Failed to get conversation by slug", "slug", slug, "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -2815,7 +2868,8 @@ func (s *Server) handleSetSetting(w http.ResponseWriter, r *http.Request) {
 
 	// Only allow known setting keys
 	allowedKeys := map[string]bool{
-		"auto_upgrade": true,
+		"auto_upgrade":      true,
+		exeNotifySettingKey: true,
 	}
 	if !allowedKeys[req.Key] {
 		http.Error(w, fmt.Sprintf("Invalid setting key: %s", req.Key), http.StatusBadRequest)
@@ -2827,6 +2881,9 @@ func (s *Server) handleSetSetting(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to set setting: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	// The exe_notify setting is read on each end-of-turn (see
+	// withExeNotifyHook), so no dispatcher reload is needed here.
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -2888,6 +2945,119 @@ func (s *Server) handleRegisterConversationHook(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "registered"})
+}
+
+// ForkRequest is the body for POST /conversation/<id>/fork. The fork copies all
+// messages up to and including the message identified by MessageID (preferred)
+// or SequenceID into a new conversation.
+type ForkRequest struct {
+	MessageID  string `json:"message_id,omitempty"`
+	SequenceID int64  `json:"sequence_id,omitempty"`
+}
+
+// handleForkConversation handles POST /conversation/<id>/fork. It creates a new
+// top-level conversation containing copies of the source conversation's
+// messages up to and including a cutoff point, then returns the new
+// conversation so the client can navigate to it.
+func (s *Server) handleForkConversation(w http.ResponseWriter, r *http.Request, conversationID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := r.Context()
+
+	var req ForkRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Resolve the cutoff sequence_id. A message_id takes precedence; otherwise
+	// use the supplied sequence_id, or fall back to the conversation's latest
+	// message (fork the whole thing).
+	cutoff := req.SequenceID
+	if req.MessageID != "" {
+		msg, err := s.db.GetMessageByID(ctx, req.MessageID)
+		if err != nil {
+			http.Error(w, "Message not found", http.StatusNotFound)
+			return
+		}
+		if msg.ConversationID != conversationID {
+			http.Error(w, "Message does not belong to this conversation", http.StatusBadRequest)
+			return
+		}
+		cutoff = msg.SequenceID
+	} else {
+		// No explicit message_id: clamp the cutoff to the conversation's latest
+		// sequence_id. A non-positive (or out-of-range) value forks the whole
+		// conversation. This also rejects forks of empty conversations.
+		latest, err := s.db.GetLatestMessage(ctx, conversationID)
+		if err != nil {
+			http.Error(w, "Conversation has no messages to fork", http.StatusBadRequest)
+			return
+		}
+		if cutoff <= 0 || cutoff > latest.SequenceID {
+			cutoff = latest.SequenceID
+		}
+	}
+
+	forked, err := s.db.ForkConversation(ctx, conversationID, cutoff)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "Conversation not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.logger.Error("Failed to fork conversation", "conversationID", conversationID, "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Give the fork a distinct slug derived from the source's, so it shows up
+	// in the drawer with a meaningful name. We do this synchronously (no LLM)
+	// using the source slug as a base; ForkConversation left the slug nil.
+	if source, serr := s.db.GetConversationByID(ctx, conversationID); serr == nil && source != nil {
+		base := "fork"
+		if source.Slug != nil && *source.Slug != "" {
+			base = *source.Slug + "-fork"
+		}
+		if sanitized := slug.Sanitize(base); sanitized != "" {
+			candidate := sanitized
+			for attempt := 0; attempt < 100; attempt++ {
+				if updated, uerr := s.db.UpdateConversationSlug(ctx, forked.ConversationID, candidate); uerr == nil {
+					forked = updated
+					break
+				} else if isUniqueConstraintErr(uerr) {
+					candidate = fmt.Sprintf("%s-%d", sanitized, attempt+1)
+					continue
+				} else {
+					s.logger.Warn("Failed to assign slug to forked conversation", "conversationID", forked.ConversationID, "error", uerr)
+					break
+				}
+			}
+		}
+	}
+
+	// Notify conversation list subscribers about the new conversation.
+	go s.publishConversationListUpdate(ConversationListUpdate{Type: "update", Conversation: forked})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(forked)
+}
+
+// isUniqueConstraintErr reports whether err is a SQLite UNIQUE constraint
+// violation (e.g. a slug collision).
+func isUniqueConstraintErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint failed") ||
+		strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "duplicate")
 }
 
 // handleStartNewGeneration handles POST /conversation/<id>/new-generation.
@@ -2961,4 +3131,114 @@ func (s *Server) startNewGeneration(ctx context.Context, conversationID string) 
 	s.publishConversationListUpdate(ConversationListUpdate{Type: "update", Conversation: &conversation})
 
 	return conversation, nil
+}
+
+// validateConversationOptions runs the same checks the new-conversation
+// path applies. Returns ("", nil) when opts are valid; otherwise a 400
+// message suitable for the client.
+func validateConversationOptions(opts db.ConversationOptions) string {
+	if opts.Type != "" && opts.Type != "normal" && opts.Type != "orchestrator" {
+		return fmt.Sprintf("Invalid conversation options type: %s", opts.Type)
+	}
+	if opts.SubagentBackend != "" && opts.SubagentBackend != "shelley" && opts.SubagentBackend != "claude-cli" && opts.SubagentBackend != "codex-cli" {
+		return fmt.Sprintf("Invalid subagent_backend: %s; must be one of: shelley, claude-cli, codex-cli", opts.SubagentBackend)
+	}
+	for name, v := range opts.ToolOverrides {
+		if v != "on" && v != "off" {
+			return fmt.Sprintf("Invalid tool_overrides[%s]=%q; must be \"on\" or \"off\"", name, v)
+		}
+	}
+	for _, hook := range opts.EndOfTurnHooks {
+		if err := validateConversationHookURL(hook.URL); err != nil {
+			return fmt.Sprintf("Invalid end_of_turn_hooks url %q: %v", hook.URL, err)
+		}
+	}
+	if opts.ThinkingLevel != "" {
+		switch opts.ThinkingLevel {
+		case "off", "minimal", "low", "medium", "high", "xhigh":
+		default:
+			return fmt.Sprintf("Invalid thinking_level: %q; must be one of off, minimal, low, medium, high, xhigh", opts.ThinkingLevel)
+		}
+	}
+	return ""
+}
+
+// CreateDraftRequest is the body for POST /api/conversations/draft.
+type CreateDraftRequest struct {
+	Draft               string                  `json:"draft"`
+	Model               string                  `json:"model,omitempty"`
+	Cwd                 string                  `json:"cwd,omitempty"`
+	ConversationOptions *db.ConversationOptions `json:"conversation_options,omitempty"`
+}
+
+// handleCreateDraft creates a new draft conversation. The returned row
+// shows up in the conversation list (via Pool.OnCommit) and the client
+// owns it from then on: edits go through PUT /draft, sending a message
+// promotes it via the standard chat handler, and DELETE /delete removes
+// it like any other conversation.
+func (s *Server) handleCreateDraft(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req CreateDraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	modelID := req.Model
+	if modelID == "" {
+		modelID = s.effectiveDefaultModel(s.getModelList())
+	}
+	if _, err := s.llmManager.GetService(modelID); err != nil {
+		http.Error(w, fmt.Sprintf("Unsupported model: %s", modelID), http.StatusBadRequest)
+		return
+	}
+	var cwdPtr *string
+	if req.Cwd != "" {
+		cwdPtr = &req.Cwd
+	}
+	var convOpts db.ConversationOptions
+	if req.ConversationOptions != nil {
+		convOpts = *req.ConversationOptions
+		if msg := validateConversationOptions(convOpts); msg != "" {
+			http.Error(w, msg, http.StatusBadRequest)
+			return
+		}
+	}
+	conv, err := s.db.CreateDraftConversation(ctx, cwdPtr, &modelID, convOpts, req.Draft)
+	if err != nil {
+		s.logger.Error("Failed to create draft", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(conv)
+}
+
+// UpdateDraftRequest is the body for PUT /api/conversation/<id>/draft.
+type UpdateDraftRequest struct {
+	Draft string `json:"draft"`
+}
+
+// handleUpdateDraft replaces the draft text on a draft conversation.
+// 404 when the conversation is not a draft (either it never was, or it
+// was already promoted by a chat post).
+func (s *Server) handleUpdateDraft(w http.ResponseWriter, r *http.Request, conversationID string) {
+	ctx := r.Context()
+	var req UpdateDraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	conv, err := s.db.UpdateDraft(ctx, conversationID, req.Draft)
+	if errors.Is(err, db.ErrConversationNotDraft) {
+		http.Error(w, "Not a draft conversation", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.logger.Error("Failed to update draft", "conversationID", conversationID, "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(conv)
 }

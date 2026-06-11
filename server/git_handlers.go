@@ -766,6 +766,8 @@ type GitGraphCommit struct {
 	Timestamp int64    `json:"timestamp"`
 	Refs      []string `json:"refs"`
 	IsHead    bool     `json:"isHead"`
+	// IsMergeBase indicates the commit is the merge-base with @{upstream}.
+	IsMergeBase bool `json:"isMergeBase,omitempty"`
 }
 
 // handleGitGraph returns the commit DAG for the graph viewer.
@@ -820,6 +822,15 @@ func (s *Server) handleGitGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Compute the merge-base with the configured upstream, if any.
+	// Failures are non-fatal: many local-only branches have no upstream.
+	mergeBase := ""
+	mbCmd := exec.Command("git", "merge-base", "HEAD", "@{upstream}")
+	mbCmd.Dir = gitRoot
+	if out, err := mbCmd.Output(); err == nil {
+		mergeBase = strings.TrimSpace(string(out))
+	}
+
 	var commits []GitGraphCommit
 	lines := strings.Split(strings.TrimRight(string(output), "\n"), "\n")
 	for _, line := range lines {
@@ -863,15 +874,16 @@ func (s *Server) handleGitGraph(w http.ResponseWriter, r *http.Request) {
 			short = short[:7]
 		}
 		commits = append(commits, GitGraphCommit{
-			Hash:      hash,
-			ShortHash: short,
-			Parents:   parents,
-			Subject:   parts[2],
-			Author:    parts[3],
-			Email:     parts[4],
-			Timestamp: ts,
-			Refs:      refs,
-			IsHead:    isHead,
+			Hash:        hash,
+			ShortHash:   short,
+			Parents:     parents,
+			Subject:     parts[2],
+			Author:      parts[3],
+			Email:       parts[4],
+			Timestamp:   ts,
+			Refs:        refs,
+			IsHead:      isHead,
+			IsMergeBase: mergeBase != "" && hash == mergeBase,
 		})
 	}
 

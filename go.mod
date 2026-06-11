@@ -1,8 +1,9 @@
 module shelley.exe.dev
 
-go 1.26.3
+go 1.26.4
 
 require (
+	github.com/boldsoftware/shelley/lazycue v0.0.0-00010101000000-000000000000
 	github.com/chromedp/cdproto v0.0.0-20260328224638-b7b298a31867
 	github.com/chromedp/chromedp v0.15.1
 	github.com/coder/websocket v1.8.12
@@ -100,6 +101,8 @@ require (
 	golang.org/x/term v0.40.0
 	modernc.org/sqlite v1.48.0
 )
+
+replace github.com/boldsoftware/shelley/lazycue => ./lazycue
 
 tool (
 	github.com/sqlc-dev/sqlc/cmd/sqlc

@@ -269,7 +269,7 @@ func newTerminalID() (string, error) {
 }
 
 // spawnSubprocess starts `shelley dtach new` as an out-of-process child so
-// it survives shelley restarts (Setsid + Release).
+// it survives shelley restarts (Setsid keeps it detached in its own session).
 func (t *TerminalSessions) spawnSubprocess(socket, logFile, cwd, command string, cols, rows uint16, extraEnv []string) (int, error) {
 	logF, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -298,8 +298,12 @@ func (t *TerminalSessions) spawnSubprocess(socket, logFile, cwd, command string,
 		return 0, fmt.Errorf("terminals: start dtach: %w", err)
 	}
 	// Waiting for the listener to come up is the caller's job (attachWithRetry).
+	// Reap the child in the background so it does not become a zombie when it
+	// exits. The PID is captured first so spawning stays non-blocking. If
+	// shelley exits, this goroutine dies and the orphaned child reparents to
+	// init, which reaps it.
 	pid := cmd.Process.Pid
-	_ = cmd.Process.Release()
+	go func() { _ = cmd.Wait() }()
 	return pid, nil
 }
 

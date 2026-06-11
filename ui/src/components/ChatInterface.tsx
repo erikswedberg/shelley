@@ -25,6 +25,7 @@ import ConversationTOC from "./ConversationTOC";
 import MessageTimestamp, { formatDay } from "./MessageTimestamp";
 import MessageInput from "./MessageInput";
 import TodoPanel from "./TodoPanel";
+import { useDraftAutosave } from "../hooks/useDraftAutosave";
 import DiffViewer from "./DiffViewer";
 import { focusMessageInputIfUnfocused } from "../utils/focusMessageInput";
 import MessageSelectionToolbar from "./MessageSelectionToolbar";
@@ -57,6 +58,7 @@ import DirectoryPickerModal from "./DirectoryPickerModal";
 import { useVersionChecker } from "./VersionChecker";
 import TerminalPanel, { EphemeralTerminal } from "./TerminalPanel";
 import ModelPicker from "./ModelPicker";
+import ThinkingLevelPicker, { DEFAULT_THINKING_LEVEL, ThinkingLevel } from "./ThinkingLevelPicker";
 import ModelBar from "./ModelBar";
 import SystemPromptView from "./SystemPromptView";
 import {
@@ -721,6 +723,8 @@ interface ChatInterfaceProps {
   reconnectNonce?: number;
   onOpenDrawer: () => void;
   onNewConversation: () => void;
+  /** Navigate to an existing conversation (e.g. after forking). */
+  onSelectConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversationId: string) => Promise<void>;
   currentConversation?: Conversation;
   onConversationUpdate?: (conversation: Conversation) => void;
@@ -731,6 +735,7 @@ interface ChatInterfaceProps {
     conversationType?: "normal" | "orchestrator",
     subagentBackend?: "shelley" | "claude-cli" | "codex-cli",
     toolOverrides?: Record<string, "on" | "off">,
+    thinkingLevel?: ThinkingLevel,
   ) => Promise<void>;
   onDistillNewGeneration?: (
     sourceConversationId: string,
@@ -755,6 +760,10 @@ interface ChatInterfaceProps {
   onTerminalClose?: (id: string) => void;
   navigateUserMessageTrigger?: number; // positive = next, negative = previous
   onConversationUnarchived?: (conversation: Conversation) => void;
+  /** Called once the lazy server-side draft has been created so App can
+   *  switch the active conversation to it. Subsequent autosaves use the
+   *  conversation's existing id. */
+  onDraftCreated?: (conversationId: string) => void;
 }
 
 const LANGUAGE_OPTIONS: { locale: Locale; flag: string; label: string }[] = [
@@ -868,6 +877,7 @@ function ChatInterface({
   reconnectNonce = 0,
   onOpenDrawer,
   onNewConversation,
+  onSelectConversation,
   onArchiveConversation,
   currentConversation,
   onConversationUpdate,
@@ -888,6 +898,7 @@ function ChatInterface({
   onTerminalClose,
   navigateUserMessageTrigger,
   onConversationUnarchived,
+  onDraftCreated,
 }: ChatInterfaceProps) {
   const toolPillsEnabled = useFeatureFlag("tool-pills");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -909,6 +920,28 @@ function ChatInterface({
       max_context_tokens?: number;
     }>
   >(window.__SHELLEY_INIT__?.models || []);
+  const THINKING_LEVEL_KEY = "shelley.thinkingLevel";
+  const [thinkingLevel, setThinkingLevelState] = useState<ThinkingLevel>(() => {
+    try {
+      const stored = localStorage.getItem(THINKING_LEVEL_KEY);
+      const valid: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+      if (stored !== null && valid.includes(stored as ThinkingLevel)) {
+        return stored as ThinkingLevel;
+      }
+    } catch {
+      /* ignore */
+    }
+    return DEFAULT_THINKING_LEVEL;
+  });
+  const setThinkingLevel = (level: ThinkingLevel) => {
+    setThinkingLevelState(level);
+    try {
+      localStorage.setItem(THINKING_LEVEL_KEY, level);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const [selectedModel, setSelectedModelState] = useState<string>(() => {
     // First check localStorage for a sticky model preference
     const storedModel = localStorage.getItem("shelley_selected_model");
@@ -1732,13 +1765,40 @@ function ChatInterface({
       orchestratorOn ? "orchestrator" : undefined,
       orchestratorOn ? subagentBackend : undefined,
       Object.keys(realOverrides).length > 0 ? realOverrides : undefined,
+      thinkingLevel,
     );
   };
+
+  // forkConversation copies the current conversation up to and including the
+  // given message (or the whole thing if no message is specified) into a new
+  // conversation, then navigates to it.
+  const forkConversation = useCallback(
+    async (messageId?: string) => {
+      if (!conversationId) return;
+      try {
+        const forked = await api.forkConversation(conversationId, { messageId });
+        if (onSelectConversation) {
+          onSelectConversation(forked);
+        }
+      } catch (err) {
+        console.error("Failed to fork conversation:", err);
+        setError(err instanceof Error ? err.message : "Failed to fork conversation");
+      }
+    },
+    [conversationId, onSelectConversation],
+  );
 
   const sendMessage = async (message: string) => {
     if (!message.trim() || sending) return;
 
     const trimmedMessage = message.trim();
+
+    // "/fork" forks the current conversation (all messages) into a new one and
+    // navigates to it.
+    if (trimmedMessage === "/fork") {
+      await forkConversation();
+      return;
+    }
 
     // Slash commands.
     // "/diff" opens the diff viewer (mirroring the command palette action).
@@ -1804,13 +1864,31 @@ function ChatInterface({
       setAgentWorking(true);
       setStreamingText("");
 
-      // If no conversation ID, this is the first message.
-      if (!conversationId && onFirstMessage) {
+      // If a draft create is in flight (autosave fired right before the
+      // user hit send), wait for it to land so we promote the existing
+      // draft instead of orphaning it and creating a second conversation.
+      if (!conversationId && inflightCreateRef.current) {
+        try {
+          await inflightCreateRef.current;
+        } catch {
+          // If the create failed, fall through to the legacy first-message
+          // path so the user's message still goes somewhere.
+        }
+      }
+      // Drafts: forward cwd alongside the message so the server updates
+      // the conversation's cwd at promotion time.
+      const isDraftConv = !!currentConversation?.is_draft;
+      const effectiveId = conversationId || draftConvIdRef.current;
+      if (!effectiveId && onFirstMessage) {
         await sendFirstMessage(message.trim());
-      } else if (conversationId) {
-        await api.sendMessage(conversationId, {
+      } else if (effectiveId) {
+        await api.sendMessage(effectiveId, {
           message: message.trim(),
           model: selectedModel,
+          // Forward cwd whenever it's a draft (either the active row says
+          // is_draft or we just joined an in-flight create whose row
+          // hasn't reached us via the patch stream yet).
+          cwd: (isDraftConv || !conversationId) && selectedCwd ? selectedCwd : undefined,
         });
       }
     } catch (err) {
@@ -1966,6 +2044,19 @@ function ChatInterface({
     const modelObj = models.find((m) => m.id === selectedModel);
     return modelObj?.display_name || selectedModel;
   })();
+
+  // Pull the conversation's reasoning effort out of conversation_options once
+  // per options-string change, rather than re-parsing on every render.
+  const conversationThinkingLevel = React.useMemo<string | null>(() => {
+    const raw = currentConversation?.conversation_options;
+    if (!raw) return null;
+    try {
+      const opts = JSON.parse(raw);
+      return opts?.thinking_level || null;
+    } catch {
+      return null;
+    }
+  }, [currentConversation?.conversation_options]);
 
   const handleUnarchive = async () => {
     if (!conversationId) return;
@@ -2286,6 +2377,7 @@ function ChatInterface({
           key={`model-bar-${generation}`}
           model={modelsByGeneration.get(generation) || currentConversation?.model}
           models={models}
+          thinkingLevel={conversationThinkingLevel}
         />,
       ];
       const systemMessages = systemMessagesByGeneration.get(generation) || [];
@@ -2343,6 +2435,7 @@ function ChatInterface({
               onCommentTextChange={setDiffCommentText}
               onCancelQueued={isQueuedMessage(item.message) ? cancelQueuedMessages : undefined}
               toolProgress={toolProgress}
+              onFork={conversationId ? forkConversation : undefined}
             />,
           );
         } else if (item.type === "tool") {
@@ -2483,19 +2576,32 @@ function ChatInterface({
           agentWorking={agentWorking}
         />
       </div>
-    ) : !conversationId ? (
-      // New conversation — show model picker and cwd selector
+    ) : !conversationId || currentConversation?.is_draft ? (
+      // New conversation or draft — show model picker and cwd selector.
+      // Drafts are pre-promotion: the model/cwd are still editable.
       <div className="status-bar-new-conversation">
-        <div
-          className="status-field status-field-model"
-          title="AI model to use for this conversation"
-        >
-          <span className="status-field-label">{t("modelLabel")}</span>
+        <div className="status-field status-field-model">
+          <span className="status-field-label" title="AI model to use for this conversation">
+            {t("modelLabel")}
+          </span>
           <ModelPicker
             models={models}
             selectedModel={selectedModel}
             onSelectModel={setSelectedModel}
             onManageModels={() => onOpenModelsModal?.()}
+            disabled={sending}
+          />
+        </div>
+        <div className="status-field status-field-thinking">
+          <span
+            className="status-field-label"
+            title="Reasoning effort the model spends before answering"
+          >
+            {t("thinkingLabel")}
+          </span>
+          <ThinkingLevelPicker
+            value={thinkingLevel}
+            onChange={setThinkingLevel}
             disabled={sending}
           />
           <div className="advanced-settings-wrapper" ref={advancedSettingsRef}>
@@ -2665,6 +2771,115 @@ function ChatInterface({
       </div>
     );
   }
+
+  // ---- Draft autosave ----
+  // Drafts are real conversations with no messages and `is_draft=true`.
+  // - New-conversation view (conversationId === null): the first non-empty
+  //   autosave creates a draft on the server, then we hand the id up so
+  //   App.tsx promotes it to the active conversation. Further keystrokes
+  //   PUT against /conversation/<id>/draft.
+  // - Draft conversation: every keystroke PUTs.
+  // - Non-draft conversation: autosave is inert. Saves are debounced with
+  //   exponential backoff; see useDraftAutosave.
+  const [draftValue, setDraftValue] = useState<string>("");
+
+  // The id of a draft we lazily created from the current input session.
+  // Lazy creation flips conversationId from null to this id, which would
+  // otherwise change the MessageInput key and remount the textarea —
+  // resetting the caret to the start mid-typing. We treat this id as part
+  // of the same "new conversation" input session (the MessageInput key
+  // ignores it) so the textarea is preserved. Cleared once the user
+  // navigates elsewhere.
+  const [lazyDraftId, setLazyDraftId] = useState<string | null>(null);
+  useEffect(() => {
+    // Genuine navigation to a different conversation ends the session.
+    if (lazyDraftId && conversationId !== lazyDraftId) setLazyDraftId(null);
+  }, [conversationId, lazyDraftId]);
+
+  // Initialize from the conversation row when switching into a draft.
+  useEffect(() => {
+    // Skip our own lazily-created draft: its row arrives via the patch
+    // stream carrying the snapshot saved at create time, which is stale
+    // relative to the live textarea. Clobbering draftValue here would
+    // drop keystrokes typed after the create fired (and reset the caret).
+    if (conversationId === lazyDraftId && lazyDraftId !== null) return;
+    if (currentConversation?.is_draft) {
+      setDraftValue(currentConversation.draft || "");
+    } else if (!conversationId) {
+      setDraftValue("");
+    }
+    // Switching into a non-draft conversation leaves draftValue stale,
+    // but the MessageInput is keyed by conversationId so it remounts and
+    // re-syncs from this state on the next render anyway.
+  }, [conversationId, currentConversation?.is_draft, currentConversation?.draft, lazyDraftId]);
+
+  const draftConvIdRef = useRef<string | null>(conversationId);
+  useEffect(() => {
+    draftConvIdRef.current = conversationId;
+  }, [conversationId]);
+
+  // Tracks an in-flight POST /conversations/draft so a send-before-create
+  // doesn't race the lazy create and end up double-creating a conversation.
+  const inflightCreateRef = useRef<Promise<string> | null>(null);
+
+  const saveDraft = useCallback(
+    async (value: string) => {
+      const id = draftConvIdRef.current;
+      if (id) {
+        // Only PUT against drafts; non-drafts ignore autosave entirely.
+        if (currentConversation?.is_draft) {
+          await api.updateDraft(id, value);
+        }
+        return;
+      }
+      // Don't materialize a draft for empty/whitespace input.
+      if (!value.trim()) return;
+      // Join an existing in-flight create rather than launching a second.
+      if (inflightCreateRef.current) {
+        await inflightCreateRef.current;
+        return;
+      }
+      const p = api
+        .createDraft({
+          draft: value,
+          model: selectedModel,
+          cwd: selectedCwd || undefined,
+        })
+        .then((conv) => {
+          draftConvIdRef.current = conv.conversation_id;
+          // Mark this as the current input session's draft so the key flip
+          // below doesn't remount the textarea out from under the caret.
+          setLazyDraftId(conv.conversation_id);
+          onDraftCreated?.(conv.conversation_id);
+          return conv.conversation_id;
+        });
+      inflightCreateRef.current = p;
+      try {
+        await p;
+      } finally {
+        if (inflightCreateRef.current === p) inflightCreateRef.current = null;
+      }
+    },
+    [currentConversation?.is_draft, selectedModel, selectedCwd, onDraftCreated],
+  );
+
+  const draftAutosave = useDraftAutosave(saveDraft);
+  const handleDraftChange = useCallback(
+    (value: string) => {
+      setDraftValue(value);
+      draftAutosave.schedule(value);
+    },
+    [draftAutosave],
+  );
+  const handleDraftSendStarted = useCallback(() => {
+    // Stop any pending autosave but leave the controlled value alone so
+    // the textarea keeps the in-flight message if the send fails.
+    draftAutosave.cancel();
+  }, [draftAutosave]);
+  const handleDraftCleared = useCallback(() => {
+    setDraftValue("");
+    draftAutosave.cancel();
+  }, [draftAutosave]);
 
   return (
     <div className="full-height flex flex-col">
@@ -3254,44 +3469,49 @@ function ChatInterface({
       {/* Status bar — always visible on desktop; hidden on mobile for active convos
           (CSS hides it, and content is suppressed to avoid duplicate DOM elements). */}
       <div
-        className={`status-bar${currentConversation?.archived ? " status-bar-archived" : ""}${!conversationId ? " status-bar-new" : ""}`}
+        className={`status-bar${currentConversation?.archived ? " status-bar-archived" : ""}${!conversationId || currentConversation?.is_draft ? " status-bar-new" : ""}`}
       >
         <div className="status-bar-content">
-          {(!isMobile || !conversationId || currentConversation?.archived) && renderStatusContent()}
+          {(!isMobile ||
+            !conversationId ||
+            currentConversation?.is_draft ||
+            currentConversation?.archived) &&
+            renderStatusContent()}
         </div>
       </div>
 
       {/* Message input — hidden for archived conversations */}
       {!currentConversation?.archived && (
-        <>
-          <MessageInput
-            key={conversationId || "new"}
-            onSend={sendMessage}
-            onQueue={queueMessage}
-            showQueueOption={!!conversationId}
-            canQueue={agentWorking && !!conversationId}
-            autoQueue={isDistilling && !!conversationId}
-            disabled={sending || loading}
-            autoFocus={true}
-            injectedText={terminalInjectedText || diffCommentText}
-            onClearInjectedText={() => {
-              setDiffCommentText("");
-              setTerminalInjectedText(null);
-            }}
-            persistKey={conversationId || "new-conversation"}
-            initialRows={conversationId ? 1 : 3}
-            statusSlot={conversationId && isMobile ? renderStatusContent() : undefined}
-            trailingSlot={conversationId ? (
-              <button
-                className="plan-mode-toggle"
-                onClick={handleTogglePlanMode}
-                title={planMode ? "Switch to BUILD mode" : "Switch to PLAN mode"}
-              >
-                {planMode ? "[PLAN MODE]" : "[BUILD MODE]"}
-              </button>
-            ) : undefined}
-          />
-        </>
+        <MessageInput
+          key={(conversationId === lazyDraftId ? null : conversationId) || "new"}
+          onSend={sendMessage}
+          onQueue={queueMessage}
+          showQueueOption={!!conversationId}
+          canQueue={agentWorking && !!conversationId}
+          autoQueue={isDistilling && !!conversationId}
+          disabled={sending || loading}
+          autoFocus={true}
+          injectedText={terminalInjectedText || diffCommentText}
+          onClearInjectedText={() => {
+            setDiffCommentText("");
+            setTerminalInjectedText(null);
+          }}
+          draftValue={draftValue}
+          onDraftChange={handleDraftChange}
+          onDraftSendStarted={handleDraftSendStarted}
+          onDraftCleared={handleDraftCleared}
+          initialRows={conversationId && !currentConversation?.is_draft ? 1 : 3}
+          statusSlot={conversationId && isMobile ? renderStatusContent() : undefined}
+          trailingSlot={conversationId ? (
+            <button
+              className="plan-mode-toggle"
+              onClick={handleTogglePlanMode}
+              title={planMode ? "Switch to BUILD mode" : "Switch to PLAN mode"}
+            >
+              {planMode ? "[PLAN MODE]" : "[BUILD MODE]"}
+            </button>
+          ) : undefined}
+        />
       )}
 
       {/* Directory Picker Modal */}

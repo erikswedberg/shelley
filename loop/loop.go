@@ -36,6 +36,10 @@ type Config struct {
 	System           []llm.SystemContent
 	WorkingDir       string // working directory for tools
 	OnGitStateChange GitStateChangeFunc
+	// ThinkingLevel, when non-default, is sent on every llm.Request the loop
+	// issues. Per-conversation override; ThinkingLevelDefault means "use the
+	// service default".
+	ThinkingLevel llm.ThinkingLevel
 	// GetWorkingDir returns the current working directory for tools.
 	// If set, this is called at end of turn to check for git state changes.
 	// If nil, Config.WorkingDir is used as a static value.
@@ -74,6 +78,7 @@ type Loop struct {
 	onToolProgress   llm.ToolProgressFunc
 	onStreamDelta    func(llm.StreamDelta)
 	onStreamDone     func()
+	thinkingLevel    llm.ThinkingLevel
 	notify           chan struct{} // signaled when a message is queued or retry requested
 	retryPending     bool          // set by Retry() to re-run processLLMRequest with current history
 	planMode         bool          // when true, editing tools are blocked
@@ -146,6 +151,7 @@ func NewLoop(config Config) *Loop {
 		onStreamDone:     config.OnStreamDone,
 		onTodoChange:     config.OnTodoChange,
 		sessionID:        config.SessionID,
+		thinkingLevel:    config.ThinkingLevel,
 		notify:           make(chan struct{}, 1),
 	}
 }
@@ -339,11 +345,12 @@ func (l *Loop) processLLMRequest(ctx context.Context) error {
 		}
 
 		req := &llm.Request{
-			Messages: messages,
-			Tools:    tools,
-			System:   system,
-			OnStream: l.onStreamDelta,
-			OnRetry:  l.recordRetryWarning(ctx),
+			Messages:      messages,
+			Tools:         tools,
+			System:        system,
+			ThinkingLevel: l.thinkingLevel,
+			OnStream:      l.onStreamDelta,
+			OnRetry:       l.recordRetryWarning(ctx),
 		}
 
 		// Insert missing tool results if the previous message had tool_use blocks

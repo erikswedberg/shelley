@@ -95,6 +95,7 @@ export const fr: TranslationKeys = {
   restore: "Restaurer",
   deletePermanently: "Supprimer définitivement",
   confirmDelete: "Êtes-vous sûr ? Cette action est irréversible.",
+  confirmDeleteShort: "Supprimer ?",
   duplicateName: "Une conversation portant ce nom existe déjà",
   agentIsWorking: "L'agent travaille...",
   subagentIsWorking: "Le sous-agent travaille...",
@@ -178,6 +179,9 @@ export const fr: TranslationKeys = {
   notifications: "Notifications",
   browserNotifications: "Notifications du navigateur",
   faviconBadge: "Badge de favicon",
+  exeDevPushNotifications: "Notifications push",
+  exeDevPushNotificationsDescription:
+    "Notifie vos appareils via l'app exe.dev quand un agent termine",
   editChannel: "Modifier le canal",
   addChannel: "Ajouter un canal",
   customChannels: "Canaux personnalisés",
@@ -227,6 +231,7 @@ export const fr: TranslationKeys = {
 
   // Status Bar
   modelLabel: "Modèle :",
+  thinkingLabel: "Effort :",
   dirLabel: "Rép. :",
 
   // Sidebar buttons

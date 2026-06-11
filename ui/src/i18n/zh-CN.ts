@@ -94,6 +94,7 @@ export const zhCN: TranslationKeys = {
   restore: "恢复",
   deletePermanently: "永久删除",
   confirmDelete: "确定要删除吗？此操作无法撤消。",
+  confirmDeleteShort: "删除？",
   duplicateName: "已存在同名对话",
   agentIsWorking: "代理正在工作...",
   subagentIsWorking: "子代理正在工作...",
@@ -177,6 +178,8 @@ export const zhCN: TranslationKeys = {
   notifications: "通知",
   browserNotifications: "浏览器通知",
   faviconBadge: "图标徽章",
+  exeDevPushNotifications: "推送通知",
+  exeDevPushNotificationsDescription: "代理完成时通过 exe.dev 应用推送到您的设备",
   editChannel: "编辑频道",
   addChannel: "添加频道",
   customChannels: "自定义频道",
@@ -225,6 +228,7 @@ export const zhCN: TranslationKeys = {
 
   // Status Bar
   modelLabel: "模型：",
+  thinkingLabel: "思考：",
   dirLabel: "目录：",
 
   // Sidebar buttons

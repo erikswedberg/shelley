@@ -94,6 +94,7 @@ export const vi: TranslationKeys = {
   restore: "Khôi phục",
   deletePermanently: "Xóa vĩnh viễn",
   confirmDelete: "Thật sự chắc chưa?",
+  confirmDeleteShort: "Xoá?",
   duplicateName: "Bị trùng tên với hội thoại đã có",
   agentIsWorking: "Agent đang làm việc...",
   subagentIsWorking: "Subagent đang làm việc...",
@@ -177,6 +178,9 @@ export const vi: TranslationKeys = {
   notifications: "Thông báo",
   browserNotifications: "Thông báo trình duyệt",
   faviconBadge: "Status trên favicon",
+  exeDevPushNotifications: "Thông báo đẩy",
+  exeDevPushNotificationsDescription:
+    "Gửi đến thiết bị của bạn qua ứng dụng exe.dev khi agent hoàn tất",
   editChannel: "Chỉnh kênh",
   addChannel: "Thêm kênh",
   customChannels: "Kênh tùy chỉnh",
@@ -225,6 +229,7 @@ export const vi: TranslationKeys = {
 
   // Status Bar
   modelLabel: "Model:",
+  thinkingLabel: "Suy nghĩ:",
   dirLabel: "Thư mục:",
 
   // Sidebar buttons

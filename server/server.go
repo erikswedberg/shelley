@@ -335,6 +335,10 @@ type Server struct {
 	notifDispatcher          *notifications.Dispatcher
 	conversationListStream   *conversationListStream
 	conversationListGitCache *conversationListGitCache
+	// exeNotifyOnce guards lazy detection of the exe.dev "notify" integration
+	// (push notifications). exeNotifyDetected caches the result.
+	exeNotifyOnce     sync.Once
+	exeNotifyDetected bool
 	// streamPub is the server-wide subpub that fans out per-conversation
 	// events to every /api/stream2 subscriber. Events are tagged with their
 	// ConversationID so clients can route them.
@@ -437,6 +441,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/stream2", http.HandlerFunc(s.handleStream))
 	mux.Handle("/api/conversations/archived", gzipHandler(http.HandlerFunc(s.handleArchivedConversations)))
 	mux.Handle("/api/conversations/new", http.HandlerFunc(s.handleNewConversation))                         // Small response
+	mux.Handle("POST /api/conversations/draft", http.HandlerFunc(s.handleCreateDraft))                      // Small response
 	mux.Handle("/api/conversations/distill-new-generation", http.HandlerFunc(s.handleDistillNewGeneration)) // Small response
 	mux.Handle("/api/conversation/", http.StripPrefix("/api/conversation", s.conversationMux()))
 	mux.Handle("/api/conversation-by-slug/", gzipHandler(http.HandlerFunc(s.handleConversationBySlug)))
@@ -457,6 +462,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/upload", s.handleUpload)                                                                  // Multipart binary uploads
 	mux.HandleFunc("/api/read", s.handleRead)                                                                      // Serves images from disk
 	mux.HandleFunc("GET /api/message/{message_id}/image/{content_index}/{toolresult_index}", s.handleMessageImage) // Serves images from DB
+	mux.HandleFunc("GET /api/message/{message_id}/file", s.handleMessageFile)                                      // Serves local images referenced in message markdown
 	mux.Handle("/api/write-file", http.HandlerFunc(s.handleWriteFile))                                             // Small response
 	mux.Handle("/api/user-agents-md", http.HandlerFunc(s.handleUserAgentsMd))                                      // Small response
 	mux.HandleFunc("/api/exec-ws", s.handleExecWS)                                                                 // Websocket for shell commands
@@ -879,6 +885,7 @@ func (s *Server) getOrCreateConversationManager(ctx context.Context, conversatio
 
 		manager := NewConversationManager(conversationID, s.db, s.logger, s.toolSetConfig, recordMessage, onStateChange, s.streamPub)
 		manager.userEmail = userEmail
+		manager.serverPort = s.listenPort
 		// Hydrate runs DB transactions, which fire OnCommit hooks. Those hooks
 		// (e.g. notify on the conversation list patch stream) acquire s.mu, so
 		// we must not hold it here.
@@ -928,6 +935,7 @@ func (s *Server) getOrCreateSubagentConversationManager(ctx context.Context, con
 		subagentConfig.SubagentDepth = s.toolSetConfig.SubagentDepth + 1
 
 		manager := NewConversationManager(conversationID, s.db, s.logger, subagentConfig, recordMessage, onStateChange, s.streamPub)
+		manager.serverPort = s.listenPort
 		// Wire up done notification: when this subagent finishes, notify the parent
 		// by injecting a user message into the parent's loop so the LLM sees it.
 		manager.onDone = func() {
@@ -1348,6 +1356,13 @@ func (s *Server) publishConversationState(state ConversationState) {
 					s.logger.Warn("failed to load end-of-turn hooks", "conversationID", state.ConversationID, "error", err)
 				}
 			}
+			// Auto-configure exe.dev push: deliver end-of-turn notifications
+			// to the notify gateway when the VM has the integration and the
+			// user hasn't disabled it. This reuses the existing end-of-turn
+			// hook path, deduped by URL so it collapses with the hook the iOS
+			// app registers (one push, not two); when disabled it strips any
+			// gateway hook so the toggle reliably silences pushes.
+			hooks = withExeNotifyHook(hooks, s.exeNotifyEnabled(context.Background()))
 		}
 
 		var slug string
@@ -1841,6 +1856,45 @@ func getPortOwnerInfo(port string) string {
 	return "(could not parse lsof output)"
 }
 
+// withExeNotifyHook reconciles the exe.dev notify-gateway end-of-turn hook with
+// the enabled state. When enabled it ensures exactly one gateway hook is
+// present (deduping against the iOS app's own registration of the same URL).
+// When disabled it removes any gateway hook — including one the iOS app
+// registered — so the toggle reliably means "no exe.dev pushes".
+func withExeNotifyHook(hooks []db.ConversationHook, enabled bool) []db.ConversationHook {
+	out := hooks[:0:0] // never mutate the caller's backing array
+	hasGateway := false
+	for _, h := range hooks {
+		if h.URL == exeNotifyGatewayURL {
+			if !enabled || hasGateway {
+				continue // drop when disabled, or dedupe duplicates
+			}
+			hasGateway = true
+		}
+		out = append(out, h)
+	}
+	if enabled && !hasGateway {
+		out = append(out, db.ConversationHook{URL: exeNotifyGatewayURL})
+	}
+	return out
+}
+
+// endOfTurnPushCategory is the APNs notification category attached to
+// end-of-turn pushes. It is a contract with the client: the client
+// registers the inline "Reply" action against this exact identifier and
+// shows the reply button only for categories it recognizes.
+//
+// The "_V2" generation gates replies on a server that can actually accept
+// them. The original (un-suffixed) category was emitted by server builds
+// whose chat handler silently 400'd a reply that omitted the model on any
+// conversation running a non-default model — the reply never reached the
+// agent. Because the category and that fix both live in the server, a
+// build emits the V2 category iff it carries the fix, so a client gated on
+// V2 never offers a reply to a server that would drop it. Bump the
+// generation again if a future change alters what the client may assume
+// about end-of-turn pushes.
+const endOfTurnPushCategory = "SHELLEY_END_OF_TURN_MESSAGE_V2"
+
 func (s *Server) sendEndOfTurnHook(ctx context.Context, hook db.ConversationHook, event notifications.Event) {
 	payload, ok := event.Payload.(notifications.AgentDonePayload)
 	if !ok {
@@ -1878,7 +1932,7 @@ func (s *Server) sendEndOfTurnHook(ctx context.Context, hook db.ConversationHook
 		"title":    title,
 		"body":     body,
 		"data":     data,
-		"category": "SHELLEY_END_OF_TURN_MESSAGE",
+		"category": endOfTurnPushCategory,
 	}
 	if subtitle != "" {
 		hookPayload["subtitle"] = subtitle

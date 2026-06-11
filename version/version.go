@@ -19,10 +19,20 @@ var (
 // opt into when present. Capabilities are non-breaking: a client that
 // doesn't recognize a capability just doesn't use it, and an older
 // server that doesn't ship the field is equivalent to advertising none.
-// The set is currently empty; it exists as a forward slot so we can add
-// capabilities later without reshaping the response.
+// Clients should treat unknown capability strings as no-ops.
 func Capabilities() []string {
-	return []string{}
+	return []string{
+		// The server accepts a per-request thinking_level override
+		// (off, minimal, low, medium, high, xhigh) on converse and
+		// distill endpoints. Clients can expose a picker; older
+		// servers without this capability silently ignore the field.
+		"thinking-levels",
+		// "drafts": conversations may have is_draft=true with their body
+		// in the draft column instead of messages. Promoted to a normal
+		// conversation when POSTed to /api/conversation/<id>/chat.
+		// See POST /api/conversations/draft, PUT /api/conversation/<id>/draft.
+		"drafts",
+	}
 }
 
 // Info holds build information from runtime/debug.ReadBuildInfo

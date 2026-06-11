@@ -49,6 +49,9 @@ coverage/
 *.swo
 *~
 
+# LazyCue / predictable-server test artifacts written into the test cwd
+shelley-inline-image-demo.png
+
 # OS
 .DS_Store
 .DS_Store?

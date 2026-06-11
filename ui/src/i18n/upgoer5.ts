@@ -94,6 +94,7 @@ export const upgoer5: TranslationKeys = {
   restore: "Bring Back",
   deletePermanently: "Throw Away for Good",
   confirmDelete: "Are you sure? You can't take this back.",
+  confirmDeleteShort: "Drop it?",
   duplicateName: "There is already a talk with that name",
   agentIsWorking: "Helper is working...",
   subagentIsWorking: "Little helper is working...",
@@ -177,6 +178,9 @@ export const upgoer5: TranslationKeys = {
   notifications: "Things to Tell You",
   browserNotifications: "Pop ups to tell you",
   faviconBadge: "Little Mark on the Small Picture",
+  exeDevPushNotifications: "Phone Buzzes",
+  exeDevPushNotificationsDescription:
+    "Makes your phone buzz through the exe.dev app when the computer helper is done",
   editChannel: "Change a Way to Hear",
   addChannel: "Add a Way to Hear",
   customChannels: "Your Own Ways to Hear",
@@ -225,6 +229,7 @@ export const upgoer5: TranslationKeys = {
 
   // Status Bar
   modelLabel: "Brain:",
+  thinkingLabel: "Think:",
   dirLabel: "Place:",
 
   // Sidebar buttons
