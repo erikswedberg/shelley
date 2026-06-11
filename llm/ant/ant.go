@@ -92,7 +92,7 @@ func (s *Service) SupportsImages() bool { return s.SupportsImages_ }
 // supports1MContext reports whether the model supports 1M token context window.
 func supports1MContext(model string) bool {
 	switch model {
-	case Claude45Sonnet, Claude45Opus, Claude46Opus, Claude47Opus, Claude48Opus:
+	case Claude45Sonnet, Claude45Opus, Claude46Opus, Claude47Opus, Claude48Opus, ClaudeFable5:
 		return true
 	default:
 		return false
