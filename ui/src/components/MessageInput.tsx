@@ -75,6 +75,8 @@ interface MessageInputProps {
   initialRows?: number;
   /** Status bar content rendered inline on mobile (hidden on desktop) */
   statusSlot?: React.ReactNode;
+  /** Extra content rendered after the send button (e.g. plan/build toggle) */
+  trailingSlot?: React.ReactNode;
 }
 
 interface Attachment {
@@ -106,6 +108,7 @@ function MessageInput({
   onDraftCleared,
   initialRows = 1,
   statusSlot,
+  trailingSlot,
 }: MessageInputProps) {
   const { t } = useI18n();
   const [message, setMessageState] = useState(draftValue ?? "");
@@ -878,6 +881,7 @@ function MessageInput({
               </button>
             )}
           </div>
+          {trailingSlot}
         </div>
       </form>
     </div>

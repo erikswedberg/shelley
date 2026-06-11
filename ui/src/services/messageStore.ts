@@ -169,10 +169,11 @@ export interface TransientState {
   toolProgress: Record<string, ToolProgress>;
   streamingText: string;
   agentWorking: boolean;
+  planMode: boolean;
 }
 
 function emptyTransient(): TransientState {
-  return { toolProgress: {}, streamingText: "", agentWorking: false };
+  return { toolProgress: {}, streamingText: "", agentWorking: false, planMode: false };
 }
 
 function emptyRecord(id: string): ConversationCacheRecord {
@@ -969,6 +970,13 @@ export class MessageStore {
     const t = this.getTransient(id);
     if (t.agentWorking === working) return;
     t.agentWorking = working;
+    this.notifyTransient(id);
+  }
+
+  setPlanMode(id: string, enabled: boolean): void {
+    const t = this.getTransient(id);
+    if (t.planMode === enabled) return;
+    t.planMode = enabled;
     this.notifyTransient(id);
   }
 

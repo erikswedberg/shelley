@@ -76,6 +76,39 @@ type Loop struct {
 	thinkingLevel    llm.ThinkingLevel
 	notify           chan struct{} // signaled when a message is queued or retry requested
 	retryPending     bool          // set by Retry() to re-run processLLMRequest with current history
+	planMode         bool          // when true, editing tools are blocked
+	allTools         []*llm.Tool   // full tool list (used to restore when leaving plan mode)
+}
+
+// planModeBlockedTools is the set of tools that are disabled in plan mode.
+var planModeBlockedTools = map[string]bool{
+	"patch":         true,
+	"output_iframe": true,
+}
+
+// SetPlanMode enables or disables plan mode. In plan mode, editing tools are blocked.
+func (l *Loop) SetPlanMode(enabled bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.planMode = enabled
+	if enabled {
+		var filtered []*llm.Tool
+		for _, t := range l.allTools {
+			if !planModeBlockedTools[t.Name] {
+				filtered = append(filtered, t)
+			}
+		}
+		l.tools = filtered
+	} else {
+		l.tools = l.allTools
+	}
+}
+
+// GetPlanMode returns whether plan mode is enabled.
+func (l *Loop) GetPlanMode() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.planMode
 }
 
 // NewLoop creates a new Loop instance with the provided configuration
@@ -96,6 +129,7 @@ func NewLoop(config Config) *Loop {
 		llm:              config.LLM,
 		history:          config.History,
 		tools:            config.Tools,
+		allTools:         config.Tools,
 		recordMessage:    config.RecordMessage,
 		recordWarning:    config.RecordWarning,
 		messageQueue:     make([]llm.Message, 0),
@@ -265,8 +299,16 @@ func (l *Loop) processLLMRequest(ctx context.Context) error {
 		messages := append([]llm.Message(nil), l.history...)
 		tools := l.tools
 		system := l.system
+		planMode := l.planMode
 		llmService := l.llm
 		l.mu.Unlock()
+
+		if planMode {
+			system = append(append([]llm.SystemContent(nil), system...), llm.SystemContent{
+				Type: "text",
+				Text: "[PLAN MODE]",
+			})
+		}
 
 		// Enable prompt caching: set cache flag on last tool and last user message content
 		// See https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching

@@ -177,6 +177,9 @@ export function connectGlobalStream({
     // working state.
 
     // Transient state
+    if (data.conversation_state?.plan_mode !== undefined) {
+      messageStore.setPlanMode(convId, data.conversation_state.plan_mode);
+    }
     if (data.tool_progress) {
       messageStore.setToolProgress(convId, data.tool_progress);
     }
