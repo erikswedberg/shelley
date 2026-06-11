@@ -2728,7 +2728,7 @@ func TestFromLLMRequestThinkingLevels(t *testing.T) {
 			got := s.fromLLMRequest(&llm.Request{
 				Messages:      []llm.Message{{Role: llm.MessageRoleUser, Content: []llm.Content{{Type: llm.ContentTypeText, Text: "hi"}}}},
 				ThinkingLevel: tt.reqLevel,
-			})
+			}, false)
 			if tt.wantType == "" {
 				if got.Thinking != nil {
 					t.Fatalf("expected no thinking, got %+v", got.Thinking)
