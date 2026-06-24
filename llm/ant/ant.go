@@ -487,6 +487,10 @@ func fromLLMContent(c llm.Content) content {
 		// Handle both nil and JSON "null" (which unmarshals as []byte("null"))
 		if d.ToolInput == nil || string(d.ToolInput) == "null" {
 			d.ToolInput = json.RawMessage("{}")
+		} else {
+			// Recover sessions whose stored tool input contains raw control
+			// characters (invalid JSON that fails to re-marshal).
+			d.ToolInput = sanitizeToolInput(d.ToolInput)
 		}
 	case llm.ContentTypeToolResult:
 		d.ToolUseID = c.ToolUseID
@@ -935,6 +939,59 @@ type streamEvent struct {
 }
 
 // streamDelta represents the delta field in content_block_delta and message_delta events.
+// sanitizeToolInput escapes raw control characters (< 0x20) that appear inside
+// JSON string literals. Models sometimes stream a literal tab or newline inside
+// a tool-input string, producing JSON that json.RawMessage cannot re-marshal.
+// If the input already parses as valid JSON it is returned unchanged.
+func sanitizeToolInput(raw json.RawMessage) json.RawMessage {
+	if json.Valid(raw) {
+		return raw
+	}
+	var out []byte
+	inString := false
+	escaped := false
+	for _, b := range raw {
+		if inString {
+			if escaped {
+				escaped = false
+				out = append(out, b)
+				continue
+			}
+			switch {
+			case b == '\\':
+				escaped = true
+				out = append(out, b)
+			case b == '"':
+				inString = false
+				out = append(out, b)
+			case b < 0x20:
+				switch b {
+				case '\n':
+					out = append(out, '\\', 'n')
+				case '\t':
+					out = append(out, '\\', 't')
+				case '\r':
+					out = append(out, '\\', 'r')
+				case '\b':
+					out = append(out, '\\', 'b')
+				case '\f':
+					out = append(out, '\\', 'f')
+				default:
+					out = append(out, fmt.Sprintf(`\u%04x`, b)...)
+				}
+			default:
+				out = append(out, b)
+			}
+			continue
+		}
+		if b == '"' {
+			inString = true
+		}
+		out = append(out, b)
+	}
+	return json.RawMessage(out)
+}
+
 type streamDelta struct {
 	Type string `json:"type"`
 
@@ -1175,8 +1232,17 @@ func parseSSEStream(r io.Reader, onStream func(llm.StreamDelta)) (*response, err
 	// Anthropic requires the "input" field on tool_use blocks, and
 	// json:"input,omitempty" omits nil, causing a 400 error.
 	for i := range contents {
-		if contents[i].Type == "tool_use" && contents[i].ToolInput == nil {
-			contents[i].ToolInput = json.RawMessage("{}")
+		if contents[i].Type == "tool_use" || contents[i].Type == "server_tool_use" {
+			if contents[i].ToolInput == nil {
+				contents[i].ToolInput = json.RawMessage("{}")
+			} else {
+				// Models occasionally emit raw control characters (e.g. a
+				// literal tab or newline) inside tool-input JSON string
+				// literals. That is invalid JSON: json.RawMessage.MarshalJSON
+				// validates and rejects it, which poisons every later
+				// re-marshal of the conversation. Escape such characters.
+				contents[i].ToolInput = sanitizeToolInput(contents[i].ToolInput)
+			}
 		}
 	}
 

@@ -2753,3 +2753,28 @@ func TestFromLLMRequestThinkingLevels(t *testing.T) {
 		})
 	}
 }
+
+func TestSanitizeToolInput(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"valid unchanged", `{"a":"b"}`, `{"a":"b"}`},
+		{"raw tab in string", "{\"a\":\"x\ty\"}", `{"a":"x\ty"}`},
+		{"raw newline in string", "{\"a\":\"x\ny\"}", `{"a":"x\ny"}`},
+		{"tab outside string ok", "{\t\"a\":\"b\"}", "{\t\"a\":\"b\"}"},
+		{"escaped quote then tab", "{\"a\":\"x\\\"\ty\"}", `{"a":"x\"\ty"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := sanitizeToolInput(json.RawMessage(c.in))
+			if string(got) != c.want {
+				t.Fatalf("sanitizeToolInput(%q) = %q, want %q", c.in, string(got), c.want)
+			}
+			if _, err := json.Marshal(got); err != nil {
+				t.Fatalf("result not marshalable: %v", err)
+			}
+		})
+	}
+}
