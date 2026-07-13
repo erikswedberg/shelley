@@ -2,11 +2,13 @@ package claudetool
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"sync"
 
 	"shelley.exe.dev/claudetool/browse"
 	"shelley.exe.dev/llm"
+	"shelley.exe.dev/mcp"
 )
 
 // LLMServiceProvider is what tools need from the model layer.
@@ -102,6 +104,9 @@ type ToolSetConfig struct {
 	ToolOverrides map[string]string
 	// DisableAllTools disables every tool by default; ToolOverrides with "on" re-enable.
 	DisableAllTools bool
+	// MCPServers are configured Model Context Protocol servers. Their tools are
+	// fetched and added to the tool set at ToolSet construction time.
+	MCPServers []mcp.ServerConfig
 }
 
 // ToolSet holds a set of tools for a single conversation.
@@ -312,10 +317,24 @@ func NewToolSet(ctx context.Context, cfg ToolSetConfig) *ToolSet {
 		}
 	}
 
+	mcpTools, mcpCleanup := mcp.Connect(ctx, cfg.MCPServers, slog.Default())
+	tools = append(tools, mcpTools...)
+	cleanup = chainCleanup(cleanup, mcpCleanup)
+
 	tools = FilterTools(tools, cfg.ToolOverrides, cfg.DisableAllTools)
 	return &ToolSet{
 		tools:   tools,
 		cleanup: cleanup,
 		wd:      wd,
 	}
+}
+
+func chainCleanup(a, b func()) func() {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	}
+	return func() { a(); b() }
 }
