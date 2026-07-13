@@ -205,6 +205,11 @@ func (s *PredictableService) Do(ctx context.Context, req *llm.Request) (*llm.Res
 		// Simulate a max_tokens truncation
 		return s.makeMaxTokensResponse("This is a truncated response that was cut off mid-sentence because the output token limit was", inputTokens), nil
 
+	case "todo demo":
+		// Exercise the todo_write tool so the TodoPanel and subagent
+		// progress UI can be tested without a real model.
+		return s.makeTodoWriteResponse(inputTokens), nil
+
 	case "refusal":
 		// Simulate a stop_reason=refusal response (model declines mid-turn,
 		// often after producing only thinking and no visible content).
@@ -465,6 +470,39 @@ func (s *PredictableService) makePatchToolResponse(filePath string, inputTokens 
 		Usage: llm.Usage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
+			CostUSD:      0.003,
+		},
+	}
+}
+
+// makeTodoWriteResponse creates a response that calls todo_write with a demo list.
+func (s *PredictableService) makeTodoWriteResponse(inputTokens uint64) *llm.Response {
+	toolInputData := map[string]interface{}{
+		"tasks": []map[string]string{
+			{"id": "one", "task": "First demo task", "status": "completed"},
+			{"id": "two", "task": "Second demo task", "status": "in-progress"},
+			{"id": "three", "task": "Third demo task", "status": "queued"},
+		},
+	}
+	toolInputBytes, _ := json.Marshal(toolInputData)
+	return &llm.Response{
+		ID:    fmt.Sprintf("pred-todo-%d", time.Now().UnixNano()),
+		Type:  "message",
+		Role:  llm.MessageRoleAssistant,
+		Model: "predictable-v1",
+		Content: []llm.Content{
+			{Type: llm.ContentTypeText, Text: "Writing a demo todo list."},
+			{
+				ID:        fmt.Sprintf("tool_%d", time.Now().UnixNano()%1000),
+				Type:      llm.ContentTypeToolUse,
+				ToolName:  "todo_write",
+				ToolInput: json.RawMessage(toolInputBytes),
+			},
+		},
+		StopReason: llm.StopReasonToolUse,
+		Usage: llm.Usage{
+			InputTokens:  inputTokens,
+			OutputTokens: 25,
 			CostUSD:      0.003,
 		},
 	}

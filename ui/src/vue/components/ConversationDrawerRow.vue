@@ -268,6 +268,21 @@
           <span class="conversation-date drawer-subagent-date">{{
             ctx.formatDate(sub.updated_at)
           }}</span>
+          <div
+            v-if="
+              subagentProgressMap[sub.conversation_id] &&
+              subagentProgressMap[sub.conversation_id].completed <
+                subagentProgressMap[sub.conversation_id].total
+            "
+            class="subagent-progress-bar"
+          >
+            <div
+              class="subagent-progress-fill"
+              :style="{
+                width: `${(subagentProgressMap[sub.conversation_id].completed / subagentProgressMap[sub.conversation_id].total) * 100}%`,
+              }"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -275,8 +290,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, inject, ref, watch, type VNode } from "vue";
+import { computed, defineComponent, h, inject, onUnmounted, ref, watch, type VNode } from "vue";
 import type { Conversation, ConversationWithState } from "../../types";
+import { messageStore, type SubagentProgress } from "../../services/messageStore";
 import {
   DrawerCtxKey,
   parseTags,
@@ -305,6 +321,19 @@ const subagentCount = computed(() =>
   isDraft.value ? 0 : conversationSubagents.value.length || convState.value.subagent_count || 0,
 );
 const hasSubagents = computed(() => subagentCount.value > 0);
+
+// Subagent todo progress: streamed onto the PARENT conversation's transient
+// state (keyed by subagent conversation id). Subscribe to the parent row's
+// transient so bars update live in the drawer.
+const subagentProgressMap = ref<Record<string, SubagentProgress>>(
+  messageStore.getTransient(props.conversation.conversation_id).subagentProgressMap,
+);
+const unsubProgress = messageStore.subscribeTransient(props.conversation.conversation_id, () => {
+  subagentProgressMap.value = messageStore.getTransient(
+    props.conversation.conversation_id,
+  ).subagentProgressMap;
+});
+onUnmounted(unsubProgress);
 const isExpanded = computed(() =>
   ctx.expandedSubagents.value.has(props.conversation.conversation_id),
 );

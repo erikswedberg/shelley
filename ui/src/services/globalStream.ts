@@ -226,6 +226,12 @@ export function connectGlobalStream({
     // working state.
 
     // Transient state
+    if (data.conversation_state?.todo_content !== undefined) {
+      messageStore.setTodoContent(convId, data.conversation_state.todo_content);
+    }
+    if (data.subagent_progress) {
+      messageStore.setSubagentProgress(convId, data.subagent_progress);
+    }
     if (data.tool_progress) {
       messageStore.setToolProgress(convId, data.tool_progress);
     }

@@ -201,6 +201,9 @@ func NewOrchestratorToolSet(ctx context.Context, cfg OrchestratorToolSetConfig) 
 	outputIframeTool := &OutputIframeTool{WorkingDir: wd}
 	tools = append(tools, outputIframeTool.Tool())
 
+	// Todo list tools
+	tools = append(tools, TodoRead, TodoWrite)
+
 	// Build available models list
 	var availableModels []AvailableModel
 	if cfg.BuildAvailableModels != nil {
@@ -411,6 +414,9 @@ func NewToolSet(ctx context.Context, cfg ToolSetConfig) *ToolSet {
 		}
 		tools = append(tools, llmOneShotTool.Tool())
 	}
+
+	// Todo list tools
+	tools = append(tools, TodoRead, TodoWrite)
 
 	var cleanup func()
 	anyBrowserToolEnabled := false

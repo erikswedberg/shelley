@@ -683,3 +683,36 @@ func (s *Server) handleGetSubagents(w http.ResponseWriter, r *http.Request, conv
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(subagents)
 }
+
+// notifyParentSubagentProgress broadcasts a subagent's todo progress to the parent.
+func (s *Server) notifyParentSubagentProgress(subagentConversationID string, completed, total int) {
+	var conv generated.Conversation
+	err := s.db.Queries(context.Background(), func(q *generated.Queries) error {
+		var err error
+		conv, err = q.GetConversation(context.Background(), subagentConversationID)
+		return err
+	})
+	if err != nil || conv.ParentConversationID == nil || *conv.ParentConversationID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	parentManager, exists := s.activeConversations[*conv.ParentConversationID]
+	s.mu.Unlock()
+	if !exists {
+		return
+	}
+
+	slug := ""
+	if conv.Slug != nil {
+		slug = *conv.Slug
+	}
+	parentManager.broadcastStream(StreamResponse{
+		SubagentProgress: &SubagentProgress{
+			ConversationID: subagentConversationID,
+			Slug:           slug,
+			Completed:      completed,
+			Total:          total,
+		},
+	})
+}

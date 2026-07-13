@@ -125,7 +125,8 @@ type ConversationManager struct {
 	// This is explicitly managed and broadcast to subscribers when it changes.
 	agentWorking bool
 
-	planMode bool // persists across loop recreation
+	planMode       bool // persists across loop recreation
+	onTodoProgress func(completed, total int) // callback for subagent todo progress
 
 	// distilling is true while a distillation goroutine is inserting content
 	// into this conversation. When true, queued messages should NOT be drained
@@ -333,6 +334,16 @@ func (cm *ConversationManager) EndOfTurnHooks(ctx context.Context) ([]db.Convers
 	hooks := make([]db.ConversationHook, len(cm.conversationOptions.EndOfTurnHooks))
 	copy(hooks, cm.conversationOptions.EndOfTurnHooks)
 	return hooks, nil
+}
+
+// readTodoContent reads the todo file for this conversation, if it exists.
+func (cm *ConversationManager) readTodoContent() string {
+	path := claudetool.TodoFilePath(cm.conversationID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // SetPlanMode enables or disables plan mode, updating both the manager and the active loop.
@@ -1700,6 +1711,32 @@ func (cm *ConversationManager) ensureLoop(service llm.Service, modelID string) e
 		},
 		OnStreamDelta: sf.Push,
 		OnStreamDone:  sf.Flush,
+		SessionID:     conversationID,
+		OnTodoChange: func() {
+			todoContent := cm.readTodoContent()
+			cm.broadcastStream(StreamResponse{
+				ConversationState: &ConversationState{
+					ConversationID: conversationID,
+					Working:        cm.IsAgentWorking(),
+					Model:          cm.GetModel(),
+					PlanMode:       boolPtr(cm.GetPlanMode()),
+					TodoContent:    todoContent,
+				},
+			})
+			// If this is a subagent, notify parent of progress
+			if cm.onTodoProgress != nil {
+				var todoList claudetool.TodoList
+				if err := json.Unmarshal([]byte(todoContent), &todoList); err == nil {
+					completed := 0
+					for _, item := range todoList.Items {
+						if item.Status == "completed" {
+							completed++
+						}
+					}
+					cm.onTodoProgress(completed, len(todoList.Items))
+				}
+			}
+		},
 	})
 
 	cm.mu.Lock()
