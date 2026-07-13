@@ -989,7 +989,7 @@ func TestRequestMaxTokensCeiling(t *testing.T) {
 			if got := s.fromLLMRequest(simpleReq); got.MaxTokens != tt.want {
 				t.Errorf("fromLLMRequest MaxTokens = %d, want %d", got.MaxTokens, tt.want)
 			}
-			if got := s.buildRequest(simpleReq, true); got.MaxTokens != tt.want {
+			if got := s.buildRequest(simpleReq, true, false); got.MaxTokens != tt.want {
 				t.Errorf("buildRequest MaxTokens = %d, want %d", got.MaxTokens, tt.want)
 			}
 		})

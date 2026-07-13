@@ -34,6 +34,7 @@ type GlobalConfig struct {
 	DefaultModel          string
 	DisableLLMIntegration bool
 	DisableGateway        bool
+	LLMAPIKey             string
 }
 
 type shelleyConfig struct {
@@ -59,6 +60,7 @@ func registerGlobalFlags(fs *flag.FlagSet, global *GlobalConfig) {
 	fs.BoolVar(&global.PredictableOnly, "predictable-only", false, "Use only the predictable service, ignoring all other models")
 	fs.StringVar(&global.ConfigPath, "config", "", "Path to shelley.json configuration file (optional)")
 	fs.StringVar(&global.DefaultModel, "default-model", "", "Default model for web UI (overrides shelley.json default_model; falls back to the first ready model when unset)")
+	fs.StringVar(&global.LLMAPIKey, "llm-api-key", "", "Path to file containing API key, or the API key itself (overrides ANTHROPIC_API_KEY)")
 	fs.BoolVar(&global.DisableLLMIntegration, "disable-llm-integration", false, "Ignore any discovered exe.dev llm integration")
 	fs.BoolVar(&global.DisableGateway, "disable-gateway", false, "Ignore llm_gateway from shelley.json")
 }
@@ -493,7 +495,11 @@ func loadConfig(path string) (shelleyConfig, error) {
 
 func buildLLMModelSources(ctx context.Context, global GlobalConfig, config shelleyConfig, logger *slog.Logger) (string, []modelsources.Source) {
 	defaultModel := global.DefaultModel
-	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	// Use --llm-api-key if provided, otherwise fall back to env var
+	anthropicKey := global.LLMAPIKey
+	if anthropicKey == "" {
+		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+	}
 	openAIKey := os.Getenv("OPENAI_API_KEY")
 	geminiKey := os.Getenv("GEMINI_API_KEY")
 	fireworksKey := os.Getenv("FIREWORKS_API_KEY")
