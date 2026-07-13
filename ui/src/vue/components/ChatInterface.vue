@@ -405,6 +405,17 @@
         <ChatStatusContent v-bind="statusContentProps" />
         <span :id="`${tocTargetId}-mobile`" class="status-navigation" />
       </template>
+      <template v-if="conversationId" #trailing>
+        <button
+          type="button"
+          class="plan-mode-toggle"
+          :title="planMode ? 'Next message will be sent in PLAN mode' : 'Next message will be sent in BUILD mode'"
+          data-testid="plan-mode-toggle"
+          @click="planMode = !planMode"
+        >
+          {{ planMode ? "[PLAN MODE]" : "[BUILD MODE]" }}
+        </button>
+      </template>
     </MessageInput>
 
     <!-- Keep one TOC alive across responsive/status host changes: remounting
@@ -1050,6 +1061,9 @@ const diffCommentText = ref("");
 const imageCommentTarget = useImageCommentTarget();
 const agentWorking = ref(false);
 const resumingInterrupted = ref(false);
+// Plan mode for the NEXT message: toggling only changes local state; the
+// server is updated when the message is actually sent (see sendMessage).
+const planMode = ref(false);
 const cancelling = ref(false);
 const contextWindowSize = ref(0);
 const toolProgress = ref<Record<string, ToolProgress>>({});
@@ -3238,6 +3252,20 @@ async function sendMessage(message: string) {
     agentWorking.value = true;
     streamingText.value = "";
     streamingThinking.value = "";
+
+    // Sync plan mode for this message to the server before sending, so the
+    // agent loop picks it up for the turn this message starts.
+    if (props.conversationId) {
+      try {
+        await fetch(`/api/conversation/${props.conversationId}/plan-mode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: planMode.value }),
+        });
+      } catch (err) {
+        console.error("Failed to sync plan mode:", err);
+      }
+    }
 
     // A pending autosave now finishes without pulling navigation back to its
     // origin. Bind normal sends just like recordings before waiting for it.

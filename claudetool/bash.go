@@ -143,8 +143,8 @@ write a file and run it; both can share one call.
 )
 
 type bashInput struct {
-	Command string `json:"command"`
-	SlowOK  bool   `json:"slow_ok,omitempty"`
+	Command string   `json:"command"`
+	SlowOK  FlexBool `json:"slow_ok,omitempty"`
 }
 
 // BashDisplayData is the display data sent to the UI for bash tool results.
@@ -154,7 +154,7 @@ type BashDisplayData struct {
 }
 
 func (i *bashInput) timeout(t *Timeouts) time.Duration {
-	if i.SlowOK {
+	if bool(i.SlowOK) {
 		return t.slow()
 	}
 	return t.fast()

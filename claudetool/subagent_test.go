@@ -161,7 +161,7 @@ func TestSubagentTool_Run(t *testing.T) {
 }
 
 func TestSubagentToolExplicitNoWait(t *testing.T) {
-	wait := false
+	wait := FlexBool(false)
 	runner := &mockSubagentRunner{response: "done"}
 	tool := &SubagentTool{
 		DB:                   newMockSubagentDB(),

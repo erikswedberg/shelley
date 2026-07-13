@@ -441,7 +441,7 @@ func TestExecuteBash(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		slowOK bool
+		slowOK FlexBool
 		hint   string
 	}{
 		{"Command Timeout", false, "slow_ok: true"},
