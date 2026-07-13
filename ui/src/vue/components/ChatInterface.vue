@@ -326,6 +326,17 @@
       <template v-if="statusSlotInline" #status>
         <ChatStatusContent v-bind="statusContentProps" />
       </template>
+      <template v-if="conversationId" #trailing>
+        <button
+          type="button"
+          class="plan-mode-toggle"
+          :title="planMode ? 'Next message will be sent in PLAN mode' : 'Next message will be sent in BUILD mode'"
+          data-testid="plan-mode-toggle"
+          @click="planMode = !planMode"
+        >
+          {{ planMode ? "[PLAN MODE]" : "[BUILD MODE]" }}
+        </button>
+      </template>
     </MessageInput>
 
     <!-- Directory Picker Modal -->
@@ -861,6 +872,9 @@ const diffCommentText = ref("");
 // tree can open the view without prop drilling).
 const imageCommentTarget = useImageCommentTarget();
 const agentWorking = ref(false);
+// Plan mode for the NEXT message: toggling only changes local state; the
+// server is updated when the message is actually sent (see sendMessage).
+const planMode = ref(false);
 const cancelling = ref(false);
 const contextWindowSize = ref(0);
 const toolProgress = ref<Record<string, ToolProgress>>({});
@@ -2827,6 +2841,20 @@ async function sendMessage(message: string) {
     agentWorking.value = true;
     streamingText.value = "";
     streamingThinking.value = "";
+
+    // Sync plan mode for this message to the server before sending, so the
+    // agent loop picks it up for the turn this message starts.
+    if (props.conversationId) {
+      try {
+        await fetch(`/api/conversation/${props.conversationId}/plan-mode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: planMode.value }),
+        });
+      } catch (err) {
+        console.error("Failed to sync plan mode:", err);
+      }
+    }
 
     if (!props.conversationId && inflightCreate) {
       try {

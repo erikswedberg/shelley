@@ -72,7 +72,10 @@ type ConversationState struct {
 	ConversationID string `json:"conversation_id"`
 	Working        bool   `json:"working"`
 	Model          string `json:"model,omitempty"`
+	PlanMode       *bool  `json:"plan_mode,omitempty"`
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 // ConversationWithState combines a conversation with its working state.
 // Preview is the trailing text of the most recent agent message, used to
