@@ -479,6 +479,7 @@
             </svg>
           </button>
         </div>
+        <slot name="trailing" />
       </div>
     </form>
   </div>

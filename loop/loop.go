@@ -127,6 +127,39 @@ type Loop struct {
 	promptCacheKey   string
 	notify           chan struct{} // signaled when a message is queued or retry requested
 	retryPending     bool          // set by Retry() to re-run processLLMRequest with current history
+	planMode         bool          // when true, editing tools are blocked
+	allTools         []*llm.Tool   // full tool list (used to restore when leaving plan mode)
+}
+
+// planModeBlockedTools is the set of tools that are disabled in plan mode.
+var planModeBlockedTools = map[string]bool{
+	"patch":         true,
+	"output_iframe": true,
+}
+
+// SetPlanMode enables or disables plan mode. In plan mode, editing tools are blocked.
+func (l *Loop) SetPlanMode(enabled bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.planMode = enabled
+	if enabled {
+		var filtered []*llm.Tool
+		for _, t := range l.allTools {
+			if !planModeBlockedTools[t.Name] {
+				filtered = append(filtered, t)
+			}
+		}
+		l.tools = filtered
+	} else {
+		l.tools = l.allTools
+	}
+}
+
+// GetPlanMode returns whether plan mode is enabled.
+func (l *Loop) GetPlanMode() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.planMode
 }
 
 // NewLoop creates a new Loop instance with the provided configuration
@@ -148,6 +181,7 @@ func NewLoop(config Config) *Loop {
 		modelID:          config.ModelID,
 		history:          config.History,
 		tools:            config.Tools,
+		allTools:         config.Tools,
 		recordMessage:    config.RecordMessage,
 		recordWarning:    config.RecordWarning,
 		messageQueue:     make([]llm.Message, 0),
@@ -379,6 +413,12 @@ func (l *Loop) processLLMRequest(ctx context.Context) error {
 func (l *Loop) currentSystem() []llm.SystemContent {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.planMode {
+		return append(append([]llm.SystemContent(nil), l.system...), llm.SystemContent{
+			Type: "text",
+			Text: "[PLAN MODE]",
+		})
+	}
 	return l.system
 }
 

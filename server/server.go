@@ -78,7 +78,10 @@ type ConversationState struct {
 	ConversationID string `json:"conversation_id"`
 	Working        bool   `json:"working"`
 	Model          string `json:"model,omitempty"`
+	PlanMode       *bool  `json:"plan_mode,omitempty"`
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 // ConversationWithState is a conversation list item as the UI gets it: the
 // list query's row plus git metadata from the filesystem.

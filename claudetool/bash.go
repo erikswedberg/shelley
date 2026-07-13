@@ -139,8 +139,8 @@ write a file and run it; both can share one call.
 )
 
 type bashInput struct {
-	Command    string `json:"command"`
-	Background bool   `json:"background,omitempty"`
+	Command    string   `json:"command"`
+	Background FlexBool `json:"background,omitempty"`
 }
 
 // BashDisplayData is the display data sent to the UI for bash tool results.
