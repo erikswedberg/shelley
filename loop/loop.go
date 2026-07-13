@@ -86,6 +86,9 @@ type Config struct {
 	// RewriteFinalReply, if set, may turn a reply that would end the turn
 	// into tool calls, at most once per turn. See Hooks.RewriteFinalReply.
 	RewriteFinalReply func(context.Context, llm.Message) (llm.Message, bool)
+	// ToolContext, if set, decorates the context passed to every tool call
+	// (e.g. with the session ID and todo-change callback).
+	ToolContext func(context.Context) context.Context
 }
 
 // Injection is what Config.InjectMessages splices into a running turn.
@@ -129,6 +132,7 @@ type Loop struct {
 	retryPending     bool          // set by Retry() to re-run processLLMRequest with current history
 	planMode         bool          // when true, editing tools are blocked
 	allTools         []*llm.Tool   // full tool list (used to restore when leaving plan mode)
+	toolCtxFn        func(context.Context) context.Context
 }
 
 // planModeBlockedTools is the set of tools that are disabled in plan mode.
@@ -197,6 +201,7 @@ func NewLoop(config Config) *Loop {
 		onSuccess:        config.OnSuccessfulRequest,
 		injectMessages:   config.InjectMessages,
 		rewriteReply:     config.RewriteFinalReply,
+		toolCtxFn:        config.ToolContext,
 		thinkingLevel:    config.ThinkingLevel,
 		promptCacheKey:   config.PromptCacheKey,
 		notify:           make(chan struct{}, 1),
@@ -400,6 +405,7 @@ func (l *Loop) processLLMRequest(ctx context.Context) error {
 		WorkingDir:     l.workingDir,
 		PromptCacheKey: l.promptCacheKey,
 		Pending:        l.pending,
+		ToolContext:    l.toolContext,
 		Hooks:          l.hooks(),
 		Logger:         l.logger,
 	})
@@ -408,6 +414,14 @@ func (l *Loop) processLLMRequest(ctx context.Context) error {
 	}
 	l.checkGitStateChange(ctx)
 	return nil
+}
+
+// toolContext applies Config.ToolContext, if any, to a tool call's context.
+func (l *Loop) toolContext(ctx context.Context) context.Context {
+	if l.toolCtxFn != nil {
+		return l.toolCtxFn(ctx)
+	}
+	return ctx
 }
 
 func (l *Loop) currentSystem() []llm.SystemContent {

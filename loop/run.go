@@ -67,6 +67,9 @@ type RunConfig struct {
 	// MaxIterations bounds model requests in one run. Zero means unlimited.
 	MaxIterations int
 	Pending       PendingMessages
+	// ToolContext, if set, decorates the context passed to every tool call
+	// (e.g. with the session ID and todo-change callback).
+	ToolContext func(context.Context) context.Context
 	// CurrentSystem, if set, returns the system prompt for each model
 	// request, after Pending; it replaces System. It lets a turn pick up a
 	// system prompt refreshed mid-turn.
@@ -742,6 +745,9 @@ func (l *RunConfig) executeToolCall(ctx context.Context, call llm.Content, tool 
 	}
 	toolCtx = llm.WithToolUseID(toolCtx, call.ID)
 	toolCtx = llm.WithLLMService(toolCtx, l.LLM)
+	if l.ToolContext != nil {
+		toolCtx = l.ToolContext(toolCtx)
+	}
 
 	startTime := time.Now()
 	resultCh := make(chan llm.ToolOut, 1)

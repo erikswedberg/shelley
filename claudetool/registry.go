@@ -26,6 +26,8 @@ var ToolRegistry = []ToolInfo{
 	{Name: "read_image", Summary: "Read an image file for the model.", DefaultOn: true, SourcePath: "claudetool/browse/browse.go"},
 	{Name: "compact_in_place", Summary: "The agent compacts its own context.", DefaultOn: true, SourcePath: "claudetool/compact_in_place.go"},
 	{Name: "message_user", Summary: "Chat with the user: messages, replies, emoji reactions, attachments.", DefaultOn: false, SourcePath: "claudetool/message_user.go"},
+	{Name: "todo_read", Summary: "Read the conversation's todo list.", DefaultOn: true, SourcePath: "claudetool/todo.go"},
+	{Name: "todo_write", Summary: "Create and update the conversation's todo list.", DefaultOn: true, SourcePath: "claudetool/todo.go"},
 }
 
 // ToolInfoByName returns registry metadata for a tool.
