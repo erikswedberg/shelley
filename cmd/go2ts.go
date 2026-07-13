@@ -105,6 +105,14 @@ type conversationStateForTS struct {
 	Working        bool   `json:"working"`
 	Model          string `json:"model,omitempty"`
 	PlanMode       *bool  `json:"plan_mode,omitempty"`
+	TodoContent    string `json:"todo_content,omitempty"`
+}
+
+type subagentProgressForTS struct {
+	ConversationID string `json:"conversation_id"`
+	Slug           string `json:"slug"`
+	Completed      int    `json:"completed"`
+	Total          int    `json:"total"`
 }
 
 type conversationWithStateForTS struct {
@@ -142,6 +150,7 @@ type streamResponseForTS struct {
 	Messages          []apiMessageForTS       `json:"messages,omitempty"`
 	Conversation      *generated.Conversation `json:"conversation,omitempty"`
 	ConversationState *conversationStateForTS `json:"conversation_state,omitempty"`
+	SubagentProgress  *subagentProgressForTS  `json:"subagent_progress,omitempty"`
 	Heartbeat         bool                    `json:"heartbeat,omitempty"`
 	NotificationEvent *notificationEventForTS `json:"notification_event,omitempty"`
 	MaxSequenceID     int64                   `json:"max_sequence_id,omitempty"`

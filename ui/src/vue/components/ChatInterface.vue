@@ -85,6 +85,13 @@
 
     <!-- Messages area -->
     <div class="messages-area-wrapper" :aria-busy="loading">
+      <TodoPanel
+        :todo-content="todoContent"
+        :dismissed="todoDismissed"
+        :minimized="todoMinimized"
+        @toggle-minimize="todoMinimized = !todoMinimized"
+        @dismiss="todoDismissed = true"
+      />
       <div ref="messagesContainerRef" class="messages-container scrollable">
         <div v-if="!loading || renderingConversation" ref="messagesListRef" class="messages-list">
           <!-- empty state -->
@@ -493,6 +500,7 @@ import {
 import { SELECTED_MODEL_KEY, pickReadyModel, storedSelectedModel } from "./selectedModel";
 
 import MessageInput from "./MessageInput.vue";
+import TodoPanel from "./TodoPanel.vue";
 import ConversationTOC from "./ConversationTOC.vue";
 import ModelBar from "./ModelBar.vue";
 import SystemPromptView from "./SystemPromptView.vue";
@@ -875,6 +883,9 @@ const agentWorking = ref(false);
 // Plan mode for the NEXT message: toggling only changes local state; the
 // server is updated when the message is actually sent (see sendMessage).
 const planMode = ref(false);
+const todoContent = ref("");
+const todoDismissed = ref(false);
+const todoMinimized = ref(false);
 const cancelling = ref(false);
 const contextWindowSize = ref(0);
 const toolProgress = ref<Record<string, ToolProgress>>({});
@@ -2172,6 +2183,10 @@ function syncTransientFromStore(focusedId: string) {
   streamingText.value = tr.streamingText;
   streamingThinking.value = tr.streamingThinking;
   agentWorking.value = tr.agentWorking;
+  if (tr.todoContent !== todoContent.value) {
+    todoContent.value = tr.todoContent;
+    if (tr.todoContent) todoDismissed.value = false; // un-dismiss on change
+  }
 }
 
 const LARGE_LOAD_STATUS_MESSAGES = 100;
@@ -3624,6 +3639,8 @@ watch(
     messageStore.resetTransient(focusedId);
     const initialTransient = messageStore.getTransient(focusedId);
     agentWorking.value = initialTransient.agentWorking;
+    todoContent.value = initialTransient.todoContent;
+    todoDismissed.value = false;
     toolProgress.value = {};
     streamingText.value = "";
     streamingThinking.value = "";

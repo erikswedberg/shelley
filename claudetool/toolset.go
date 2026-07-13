@@ -277,6 +277,9 @@ func NewToolSet(ctx context.Context, cfg ToolSetConfig) *ToolSet {
 		tools = append(tools, llmOneShotTool.Tool())
 	}
 
+	// Todo list tools
+	tools = append(tools, TodoRead, TodoWrite)
+
 	var cleanup func()
 	anyBrowserToolEnabled := false
 	for _, name := range []string{"browser", "read_image"} {

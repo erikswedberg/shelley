@@ -25,6 +25,8 @@ var ToolRegistry = []ToolInfo{
 	{Name: "llm_one_shot", Summary: "One-shot prompt to another LLM.", DefaultOn: true},
 	{Name: "browser", Summary: "Browser automation (navigate, eval, screenshot, emulate, network, accessibility, profile).", DefaultOn: true},
 	{Name: "read_image", Summary: "Read an image file for the model.", DefaultOn: true},
+	{Name: "todo_read", Summary: "Read the conversation's todo list.", DefaultOn: true},
+	{Name: "todo_write", Summary: "Create and update the conversation's todo list.", DefaultOn: true},
 }
 
 // IsToolEnabled reports whether a tool with the given name is enabled for a

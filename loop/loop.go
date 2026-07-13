@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"shelley.exe.dev/claudetool"
 	"shelley.exe.dev/gitstate"
 	"shelley.exe.dev/llm"
 )
@@ -76,6 +77,10 @@ type Config struct {
 	// returning them, so the DB sequence order matches the in-memory splice
 	// point.
 	InjectMessages func(ctx context.Context) []llm.Message
+	// OnTodoChange is called when the todo list changes.
+	OnTodoChange func()
+	// SessionID identifies the conversation session for todo file storage.
+	SessionID string
 }
 
 // Loop manages a conversation turn with an LLM including tool execution and message recording.
@@ -105,6 +110,8 @@ type Loop struct {
 	retryPending     bool          // set by Retry() to re-run processLLMRequest with current history
 	planMode         bool          // when true, editing tools are blocked
 	allTools         []*llm.Tool   // full tool list (used to restore when leaving plan mode)
+	onTodoChange     func()
+	sessionID        string
 }
 
 // planModeBlockedTools is the set of tools that are disabled in plan mode.
@@ -170,6 +177,8 @@ func NewLoop(config Config) *Loop {
 		onStreamDelta:    config.OnStreamDelta,
 		onStreamDone:     config.OnStreamDone,
 		injectMessages:   config.InjectMessages,
+		onTodoChange:     config.OnTodoChange,
+		sessionID:        config.SessionID,
 		thinkingLevel:    config.ThinkingLevel,
 		notify:           make(chan struct{}, 1),
 	}
@@ -885,6 +894,12 @@ func (l *Loop) executeToolCall(ctx context.Context, c llm.Content) llm.Content {
 	}
 	toolCtx = llm.WithToolUseID(toolCtx, c.ID)
 	toolCtx = llm.WithLLMService(toolCtx, l.llm)
+	if l.sessionID != "" {
+		toolCtx = llm.WithSessionID(toolCtx, l.sessionID)
+	}
+	if l.onTodoChange != nil {
+		toolCtx = claudetool.WithTodoChangeCallback(toolCtx, l.onTodoChange)
+	}
 	startTime := time.Now()
 
 	resultCh := make(chan llm.ToolOut, 1)

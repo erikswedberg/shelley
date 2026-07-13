@@ -2425,6 +2425,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 				Working:        conversation.AgentWorking,
 				Model:          manager.GetModel(),
 				PlanMode:       boolPtr(manager.GetPlanMode()),
+				TodoContent:    manager.readTodoContent(),
 			},
 			ContextWindowSize: ctxSize,
 		}
@@ -2441,6 +2442,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 				Working:        conversation.AgentWorking,
 				Model:          manager.GetModel(),
 				PlanMode:       boolPtr(manager.GetPlanMode()),
+				TodoContent:    manager.readTodoContent(),
 			},
 			Heartbeat: true,
 		}
@@ -2485,6 +2487,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 						Working:        conv.AgentWorking,
 						Model:          manager.GetModel(),
 				PlanMode:       boolPtr(manager.GetPlanMode()),
+				TodoContent:    manager.readTodoContent(),
 					},
 					Heartbeat: true,
 				}

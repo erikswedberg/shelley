@@ -14,6 +14,8 @@ export const idleTransient: TransientState = {
   streamingText: "",
   streamingThinking: "",
   agentWorking: false,
+  todoContent: "",
+  subagentProgressMap: {},
 };
 
 export function readerDescriptor(
