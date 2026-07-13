@@ -260,6 +260,13 @@ type PatchInputOneString struct {
 	Patches string `json:"patches"` // contains Patches as a JSON string 🤦
 }
 
+// PatchInputOneSingularString is PatchInputOneSingular with the patch
+// stringified, which some model/client serializers emit.
+type PatchInputOneSingularString struct {
+	Path  string `json:"path"`
+	Patch string `json:"patch"` // contains a single PatchRequest as a JSON string 🤦
+}
+
 // PatchDisplayData is the structured data sent to the UI for display.
 type PatchDisplayData struct {
 	Path string `json:"path"`
@@ -325,6 +332,15 @@ func (p *PatchTool) patchParse(m json.RawMessage) (PatchInput, error) {
 		return PatchInput{Path: inputOneSingular.Path, Patches: []PatchRequest{*inputOneSingular.Patch}}, nil
 	} else if originalErr == nil {
 		originalErr = err
+	}
+	var inputOneSingularString PatchInputOneSingularString
+	if err := json.Unmarshal(m, &inputOneSingularString); err == nil && inputOneSingularString.Patch != "" {
+		var onePatch PatchRequest
+		if err := json.Unmarshal([]byte(inputOneSingularString.Patch), &onePatch); err == nil && onePatch.Operation != "" {
+			return PatchInput{Path: inputOneSingularString.Path, Patches: []PatchRequest{onePatch}}, nil
+		} else if originalErr == nil {
+			originalErr = err
+		}
 	}
 	var inputOneString PatchInputOneString
 	if err := json.Unmarshal(m, &inputOneString); err == nil && inputOneString.Patches != "" {
