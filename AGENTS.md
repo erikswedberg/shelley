@@ -37,3 +37,5 @@
     - `ui/src/vue/components/tools/BrowserTool.vue` (if the tool is a browser action — this component
       reads the `action` field from the input and dispatches to the right sub-component)
     - `loop/predictable.go` (the "tool smorgasbord" demo response)
+
+16. Prefer `wait: false` for subagents doing background research. Use `wait: true` only when you need the result to continue, and keep timeouts short (30s max). Never block the conversation for minutes.

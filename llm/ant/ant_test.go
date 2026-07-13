@@ -69,7 +69,11 @@ func TestTokenContextWindow(t *testing.T) {
 		{"default model", "", 200000},
 		{"Claude46Sonnet", Claude46Sonnet, 200000},
 		{"Claude45Haiku", Claude45Haiku, 200000},
-		{"Claude45Opus", Claude45Opus, 200000},
+		{"Claude45Opus", Claude45Opus, 1000000},
+		{"Claude45Sonnet", Claude45Sonnet, 1000000},
+		{"Claude46Opus", Claude46Opus, 1000000},
+		{"Claude47Opus", Claude47Opus, 1000000},
+		{"Claude48Opus", Claude48Opus, 1000000},
 		{"unknown model", "unknown-model", 200000},
 	}
 
@@ -459,7 +463,7 @@ func TestFromLLMRequestSkipsEmptyMessages(t *testing.T) {
 				{Type: llm.ContentTypeText, Text: "hello"},
 			}},
 		},
-	})
+	}, false)
 	if len(req.Messages) != 1 {
 		t.Errorf("expected 1 message after filtering, got %d", len(req.Messages))
 	}
@@ -661,7 +665,7 @@ func TestFromLLMRequestStripsOldThinkingBlocks(t *testing.T) {
 				{Type: llm.ContentTypeToolResult, ToolUseID: "tool1", ToolResult: []llm.Content{{Type: llm.ContentTypeText, Text: "output"}}},
 			}},
 		},
-	})
+	}, false)
 
 	// Should have 7 messages (no messages dropped)
 	if len(req.Messages) != 7 {
@@ -731,7 +735,7 @@ func TestFromLLMRequest(t *testing.T) {
 		},
 	}
 
-	got := s.fromLLMRequest(req)
+	got := s.fromLLMRequest(req, false)
 
 	if got.Model != Claude46Sonnet {
 		t.Errorf("fromLLMRequest().Model = %v, want %v", got.Model, Claude46Sonnet)
@@ -769,7 +773,7 @@ func TestMaxOutputTokensCapping(t *testing.T) {
 
 	// Opus 4.5 has a 64k limit — setting MaxTokens above must be capped
 	s := &Service{Model: Claude45Opus, MaxTokens: 100000, ThinkingLevel: llm.ThinkingLevelMedium}
-	got := s.fromLLMRequest(simpleReq)
+	got := s.fromLLMRequest(simpleReq, false)
 	if got.MaxTokens != 64000 {
 		t.Errorf("Opus 4.5: MaxTokens = %d, want 64000", got.MaxTokens)
 	}
@@ -779,21 +783,21 @@ func TestMaxOutputTokensCapping(t *testing.T) {
 
 	// Opus 4.6 has a 128k limit — 100000 should pass through
 	s2 := &Service{Model: Claude46Opus, MaxTokens: 100000}
-	got2 := s2.fromLLMRequest(simpleReq)
+	got2 := s2.fromLLMRequest(simpleReq, false)
 	if got2.MaxTokens != 100000 {
 		t.Errorf("Opus 4.6: MaxTokens = %d, want 100000", got2.MaxTokens)
 	}
 
 	// Sonnet 4.6 has a 128k limit — 50000 should pass through
 	s3 := &Service{Model: Claude46Sonnet, MaxTokens: 50000}
-	got3 := s3.fromLLMRequest(simpleReq)
+	got3 := s3.fromLLMRequest(simpleReq, false)
 	if got3.MaxTokens != 50000 {
 		t.Errorf("Sonnet 4.6: MaxTokens = %d, want 50000", got3.MaxTokens)
 	}
 
 	// Sonnet 4.6 with MaxTokens above 128k must be capped
 	s4 := &Service{Model: Claude46Sonnet, MaxTokens: 200000}
-	got4 := s4.fromLLMRequest(simpleReq)
+	got4 := s4.fromLLMRequest(simpleReq, false)
 	if got4.MaxTokens != 128000 {
 		t.Errorf("Sonnet 4.6 capped: MaxTokens = %d, want 128000", got4.MaxTokens)
 	}
@@ -2825,7 +2829,7 @@ func TestFromLLMRequestThinkingLevels(t *testing.T) {
 			got := s.fromLLMRequest(&llm.Request{
 				Messages:      []llm.Message{{Role: llm.MessageRoleUser, Content: []llm.Content{{Type: llm.ContentTypeText, Text: "hi"}}}},
 				ThinkingLevel: tt.reqLevel,
-			})
+			}, false)
 			if tt.wantType == "" {
 				if got.Thinking != nil {
 					t.Fatalf("expected no thinking, got %+v", got.Thinking)

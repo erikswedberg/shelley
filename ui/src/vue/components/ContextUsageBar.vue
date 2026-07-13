@@ -100,7 +100,9 @@ const percentage = computed(() =>
   props.maxContextTokens > 0 ? (props.contextWindowSize / props.maxContextTokens) * 100 : 0,
 );
 const clampedPercentage = computed(() => Math.min(percentage.value, 100));
-const showLongConversationWarning = computed(() => props.contextWindowSize >= 100000);
+const showLongConversationWarning = computed(
+  () => props.maxContextTokens > 0 && props.contextWindowSize >= props.maxContextTokens * 0.5,
+);
 
 const barColor = computed(() => {
   if (percentage.value >= 90) return "var(--error-text)";
