@@ -170,7 +170,7 @@ type subagentInput struct {
 	Slug           string `json:"slug"`
 	Prompt         string `json:"prompt"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
-	Wait           *bool  `json:"wait,omitempty"`
+	Wait           *FlexBool `json:"wait,omitempty"`
 	Model          string `json:"model,omitempty"`
 	Reasoning      string `json:"reasoning,omitempty"`
 }
@@ -212,7 +212,7 @@ func (s *SubagentTool) run(ctx context.Context, req subagentInput) llm.ToolOut {
 
 	wait := true
 	if req.Wait != nil {
-		wait = *req.Wait
+		wait = bool(*req.Wait)
 	}
 
 	// Determine which model to use: explicit choice > parent's model

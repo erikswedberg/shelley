@@ -964,6 +964,12 @@ func (s *Server) conversationMux() *http.ServeMux {
 	mux.HandleFunc("POST /{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		s.handleCancelConversation(w, r, r.PathValue("id"))
 	})
+	mux.HandleFunc("GET /{id}/plan-mode", func(w http.ResponseWriter, r *http.Request) {
+		s.handleGetPlanMode(w, r, r.PathValue("id"))
+	})
+	mux.HandleFunc("POST /{id}/plan-mode", func(w http.ResponseWriter, r *http.Request) {
+		s.handleSetPlanMode(w, r, r.PathValue("id"))
+	})
 	mux.HandleFunc("POST /{id}/retry", func(w http.ResponseWriter, r *http.Request) {
 		s.handleRetryConversation(w, r, r.PathValue("id"))
 	})
@@ -1573,6 +1579,55 @@ func (s *Server) handleCancelConversation(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
+// handleGetPlanMode handles GET /conversation/<id>/plan-mode
+func (s *Server) handleGetPlanMode(w http.ResponseWriter, r *http.Request, conversationID string) {
+	s.mu.Lock()
+	manager, exists := s.activeConversations[conversationID]
+	s.mu.Unlock()
+
+	planMode := false
+	if exists {
+		planMode = manager.GetPlanMode()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"plan_mode": planMode})
+}
+
+// handleSetPlanMode handles POST /conversation/<id>/plan-mode
+func (s *Server) handleSetPlanMode(w http.ResponseWriter, r *http.Request, conversationID string) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	manager, exists := s.activeConversations[conversationID]
+	s.mu.Unlock()
+
+	if !exists {
+		http.Error(w, "no active conversation", http.StatusNotFound)
+		return
+	}
+
+	manager.SetPlanMode(body.Enabled)
+
+	// Broadcast state change
+	manager.broadcastStream(StreamResponse{
+		ConversationState: &ConversationState{
+			ConversationID: conversationID,
+			Working:        manager.IsAgentWorking(),
+			Model:          manager.GetModel(),
+			PlanMode:       boolPtr(body.Enabled),
+		},
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"plan_mode": body.Enabled})
+}
+
 // handleRetryConversation handles POST /api/conversation/<id>/retry.
 // It re-runs the LLM request that previously failed, using the conversation's
 // current state. The error message is left untouched (messages are an
@@ -2037,6 +2092,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 				ConversationID: conversationID,
 				Working:        conversation.AgentWorking,
 				Model:          manager.GetModel(),
+				PlanMode:       boolPtr(manager.GetPlanMode()),
 			},
 			ContextWindowSize: ctxSize,
 		}
@@ -2052,6 +2108,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 				ConversationID: conversationID,
 				Working:        conversation.AgentWorking,
 				Model:          manager.GetModel(),
+				PlanMode:       boolPtr(manager.GetPlanMode()),
 			},
 			Heartbeat: true,
 		}
@@ -2095,6 +2152,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 						ConversationID: conversationID,
 						Working:        conv.AgentWorking,
 						Model:          manager.GetModel(),
+				PlanMode:       boolPtr(manager.GetPlanMode()),
 					},
 					Heartbeat: true,
 				}

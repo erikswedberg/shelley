@@ -102,6 +102,7 @@ type conversationStateForTS struct {
 	ConversationID string `json:"conversation_id"`
 	Working        bool   `json:"working"`
 	Model          string `json:"model,omitempty"`
+	PlanMode       *bool  `json:"plan_mode,omitempty"`
 }
 
 type conversationWithStateForTS struct {

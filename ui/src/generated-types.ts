@@ -56,6 +56,7 @@ export interface ConversationStateForTS {
   conversation_id: string;
   working: boolean;
   model?: string;
+  plan_mode?: boolean | null;
 }
 
 export interface NotificationEventForTS {
