@@ -59,6 +59,14 @@ export interface ConversationStateForTS {
   working: boolean;
   model?: string;
   plan_mode?: boolean | null;
+  todo_content?: string;
+}
+
+export interface SubagentProgressForTS {
+  conversation_id: string;
+  slug: string;
+  completed: number;
+  total: number;
 }
 
 export interface NotificationEventForTS {
@@ -83,6 +91,7 @@ export interface StreamResponseForTS {
   messages?: ApiMessageForTS[] | null;
   conversation?: Conversation | null;
   conversation_state?: ConversationStateForTS | null;
+  subagent_progress?: SubagentProgressForTS | null;
   heartbeat?: boolean;
   notification_event?: NotificationEventForTS | null;
   disk_space_status?: DiskSpaceStatus | null;

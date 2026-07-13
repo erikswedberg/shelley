@@ -156,12 +156,12 @@ func (s *SubagentTool) subagentInputSchema() string {
 }
 
 type subagentInput struct {
-	Slug           string `json:"slug"`
-	Prompt         string `json:"prompt"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	Slug           string    `json:"slug"`
+	Prompt         string    `json:"prompt"`
+	TimeoutSeconds int       `json:"timeout_seconds,omitempty"`
 	Wait           *FlexBool `json:"wait,omitempty"`
-	Model          string `json:"model,omitempty"`
-	Reasoning      string `json:"reasoning,omitempty"`
+	Model          string    `json:"model,omitempty"`
+	Reasoning      string    `json:"reasoning,omitempty"`
 }
 
 // Tool returns an llm.Tool for the subagent functionality.

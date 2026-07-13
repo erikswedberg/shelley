@@ -25,6 +25,8 @@ var ToolRegistry = []ToolInfo{
 	{Name: "llm_one_shot", Summary: "One-shot prompt to another LLM.", DefaultOn: true, SourcePath: "claudetool/llm_one_shot.go"},
 	{Name: "browser", Summary: "Browser automation (navigate, eval, screenshot, emulate, network, accessibility, profile).", DefaultOn: true, SourcePath: "claudetool/browse/browse.go"},
 	{Name: "read_image", Summary: "Read an image file for the model.", DefaultOn: true, SourcePath: "claudetool/browse/browse.go"},
+	{Name: "todo_read", Summary: "Read the conversation's todo list.", DefaultOn: true, SourcePath: "claudetool/todo.go"},
+	{Name: "todo_write", Summary: "Create and update the conversation's todo list.", DefaultOn: true, SourcePath: "claudetool/todo.go"},
 }
 
 // ToolInfoByName returns registry metadata for a tool.

@@ -379,6 +379,21 @@
           <span class="conversation-date drawer-subagent-date">{{
             ctx.formatDate(sub.updated_at)
           }}</span>
+          <div
+            v-if="
+              subagentProgressMap[sub.conversation_id] &&
+              subagentProgressMap[sub.conversation_id].completed <
+                subagentProgressMap[sub.conversation_id].total
+            "
+            class="subagent-progress-bar"
+          >
+            <div
+              class="subagent-progress-fill"
+              :style="{
+                width: `${(subagentProgressMap[sub.conversation_id].completed / subagentProgressMap[sub.conversation_id].total) * 100}%`,
+              }"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -404,6 +419,7 @@ import OverflowDotsIcon from "./OverflowDotsIcon.vue";
 import type { Conversation, ConversationWithState } from "../../types";
 import { isImeComposing } from "../../utils/imeComposing";
 import { highlightSearchMatches } from "../../utils/searchHighlight";
+import { messageStore, type SubagentProgress } from "../../services/messageStore";
 import {
   DrawerCtxKey,
   parseTags,
@@ -540,6 +556,19 @@ const subagentBadgeTooltip = computed(() => {
     ? `${base} (${runningSubagentCount.value} ${ctx.t("running")})`
     : base;
 });
+
+// Subagent todo progress: streamed onto the PARENT conversation's transient
+// state (keyed by subagent conversation id). Subscribe to the parent row's
+// transient so bars update live in the drawer.
+const subagentProgressMap = ref<Record<string, SubagentProgress>>(
+  messageStore.getTransient(props.conversation.conversation_id).subagentProgressMap,
+);
+const unsubProgress = messageStore.subscribeTransient(props.conversation.conversation_id, () => {
+  subagentProgressMap.value = messageStore.getTransient(
+    props.conversation.conversation_id,
+  ).subagentProgressMap;
+});
+onBeforeUnmount(unsubProgress);
 const isExpanded = computed(() =>
   ctx.expandedSubagents.value.has(props.conversation.conversation_id),
 );
