@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -171,6 +172,8 @@ type ConversationManager struct {
 	// cancelSuggestion stops the next prompt suggestion request, if one is
 	// in flight. Idle work cancellation calls it. Guarded by mu.
 	cancelSuggestion context.CancelFunc
+
+	onTodoProgress func(completed, total int) // callback for subagent todo progress
 
 	// changingSettings holds queued messages back, from both the drain and
 	// the running turn, while ApplySettings or StartNewGeneration interrupts
@@ -388,6 +391,16 @@ func (cm *ConversationManager) SetThinkingLevel(ctx context.Context, reasoning s
 		loopInstance.SetThinkingLevel(llm.ParseThinkingLevel(reasoning))
 	}
 	return nil
+}
+
+// readTodoContent reads the todo file for this conversation, if it exists.
+func (cm *ConversationManager) readTodoContent() string {
+	path := claudetool.TodoFilePath(cm.conversationID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // SetAgentWorking updates the agent working state, persists it to the
@@ -2562,6 +2575,30 @@ func (cm *ConversationManager) ensureLoopLocked(service llm.Service, modelID str
 	if slices.ContainsFunc(toolSet.Tools(), func(t *llm.Tool) bool { return t.Name == messageParentTool.Name }) {
 		rewriteFinalReply = cm.rewriteFinalReply
 	}
+	onTodoChange := func() {
+		todoContent := cm.readTodoContent()
+		cm.broadcastStream(StreamResponse{
+			ConversationState: &ConversationState{
+				ConversationID: conversationID,
+				Working:        cm.IsAgentWorking(),
+				Model:          cm.GetModel(),
+				TodoContent:    todoContent,
+			},
+		})
+		// If this is a subagent, notify parent of progress
+		if cm.onTodoProgress != nil {
+			var todoList claudetool.TodoList
+			if err := json.Unmarshal([]byte(todoContent), &todoList); err == nil {
+				completed := 0
+				for _, item := range todoList.Items {
+					if item.Status == "completed" {
+						completed++
+					}
+				}
+				cm.onTodoProgress(completed, len(todoList.Items))
+			}
+		}
+	}
 	loopInstance := loop.NewLoop(loop.Config{
 		LLM:            service,
 		ModelID:        modelID,
@@ -2627,6 +2664,9 @@ func (cm *ConversationManager) ensureLoopLocked(service llm.Service, modelID str
 			if cm.isCurrentLoopGeneration(generation) && !cm.IsAgentWorking() {
 				cm.SetAgentWorking(true)
 			}
+		},
+		ToolContext: func(ctx context.Context) context.Context {
+			return claudetool.WithTodoChangeCallback(claudetool.WithSessionID(ctx, conversationID), onTodoChange)
 		},
 	})
 

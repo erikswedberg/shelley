@@ -31,6 +31,8 @@ var ToolRegistry = []ToolInfo{
 	{Name: "send_to_thread", Summary: "Reply in a Slack thread (Slack Assistant).", DefaultOn: false, SourcePath: "claudetool/slack.go"},
 	{Name: "send_to_channel", Summary: "Post to a Slack channel (Slack Assistant).", DefaultOn: false, SourcePath: "claudetool/slack.go"},
 	{Name: "add_reaction", Summary: "React to a Slack message with an emoji (Slack Assistant).", DefaultOn: false, SourcePath: "claudetool/slack.go"},
+	{Name: "todo_read", Summary: "Read the conversation's todo list.", DefaultOn: true, SourcePath: "claudetool/todo.go"},
+	{Name: "todo_write", Summary: "Create and update the conversation's todo list.", DefaultOn: true, SourcePath: "claudetool/todo.go"},
 }
 
 // ToolInfoByName returns registry metadata for a tool.

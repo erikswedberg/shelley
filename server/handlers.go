@@ -2603,6 +2603,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 				ConversationID: conversationID,
 				Working:        conversation.AgentWorking,
 				Model:          manager.GetModel(),
+				TodoContent:    manager.readTodoContent(),
 			},
 			ContextWindowSize: ctxSize,
 		}
@@ -2618,6 +2619,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 				ConversationID: conversationID,
 				Working:        conversation.AgentWorking,
 				Model:          manager.GetModel(),
+				TodoContent:    manager.readTodoContent(),
 			},
 			Heartbeat: true,
 		}
@@ -2661,6 +2663,7 @@ func (s *Server) runStream(w http.ResponseWriter, r *http.Request, conversationI
 						ConversationID: conversationID,
 						Working:        conv.AgentWorking,
 						Model:          manager.GetModel(),
+						TodoContent:    manager.readTodoContent(),
 					},
 					Heartbeat: true,
 				}

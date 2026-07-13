@@ -101,6 +101,10 @@ type Config struct {
 	OnTurnStart func()
 
 	RecordRoutingWarning RoutingNoticeRecordFunc
+
+	// ToolContext, if set, decorates the context passed to every tool call
+	// (e.g. with the session ID and todo-change callback).
+	ToolContext func(context.Context) context.Context
 }
 
 // Injection is what Config.InjectMessages splices into a running turn.
@@ -143,6 +147,7 @@ type Loop struct {
 	notify           chan struct{} // signaled when a message is queued or retry requested
 	retryPending     bool          // set by Retry() to re-run processLLMRequest with current history
 	startingTurn     bool          // Go took a turn and is calling onTurnStart
+	toolCtxFn        func(context.Context) context.Context
 
 	modelRouting         modelRouting
 	recordRoutingWarning RoutingNoticeRecordFunc
@@ -174,6 +179,7 @@ func NewLoop(config Config) *Loop {
 		injectMessages:   config.InjectMessages,
 		rewriteReply:     config.RewriteFinalReply,
 		onTurnStart:      config.OnTurnStart,
+		toolCtxFn:        config.ToolContext,
 		thinkingLevel:    config.ThinkingLevel,
 		promptCacheKey:   config.PromptCacheKey,
 		notify:           make(chan struct{}, 1),
@@ -400,6 +406,7 @@ func (l *Loop) processLLMRequest(ctx context.Context) error {
 		ThinkingLevel:  thinkingLevel,
 		PromptCacheKey: l.promptCacheKey,
 		Pending:        l.pending,
+		ToolContext:    l.toolContext,
 		Hooks:          l.hooks(),
 		Logger:         l.logger,
 		modelRouting:   &l.modelRouting,
@@ -423,6 +430,14 @@ func (l *Loop) takeQueuedLocked(isolated bool) []llm.Message {
 	}
 	l.messageQueue = l.messageQueue[len(messages):]
 	return messages
+}
+
+// toolContext applies Config.ToolContext, if any, to a tool call's context.
+func (l *Loop) toolContext(ctx context.Context) context.Context {
+	if l.toolCtxFn != nil {
+		return l.toolCtxFn(ctx)
+	}
+	return ctx
 }
 
 func (l *Loop) currentSystem() []llm.SystemContent {

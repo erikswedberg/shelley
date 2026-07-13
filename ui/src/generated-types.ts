@@ -93,6 +93,14 @@ export interface ConversationStateForTS {
   conversation_id: string;
   working: boolean;
   model?: string;
+  todo_content?: string;
+}
+
+export interface SubagentProgressForTS {
+  conversation_id: string;
+  slug: string;
+  completed: number;
+  total: number;
 }
 
 export interface ConversationReadMarkersRow {
@@ -117,6 +125,7 @@ export interface StreamResponseForTS {
   messages?: ApiMessageForTS[] | null;
   conversation?: Conversation | null;
   conversation_state?: ConversationStateForTS | null;
+  subagent_progress?: SubagentProgressForTS | null;
   conversation_read?: ConversationReadMarkersRow | null;
   conversation_reads?: ConversationReads | null;
   heartbeat?: boolean;
