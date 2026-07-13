@@ -13,6 +13,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ const (
 	DefaultModel = Claude46Sonnet
 	APIKeyEnv    = "ANTHROPIC_API_KEY"
 	DefaultURL   = "https://api.anthropic.com/v1/messages"
+	toolPrefix   = "sk_" // prefix for tool names when using Claude Max OAuth tokens
 )
 
 const (
@@ -181,6 +183,28 @@ type Service struct {
 }
 
 var _ llm.Service = (*Service)(nil)
+
+// claudeMaxBetas are the beta features required for Claude Max OAuth tokens.
+const claudeMaxBetas = "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+
+// isClaudeMaxToken reports whether apiKey is a Claude Pro/Max OAuth token.
+func isClaudeMaxToken(apiKey string) bool {
+	return strings.HasPrefix(apiKey, "sk-ant-oat")
+}
+
+// readAPIKey returns the API key, reading from file if APIKey is a file path.
+// This allows tokens to be refreshed without restarting the session.
+func (s *Service) readAPIKey() (string, error) {
+	apiKey := s.APIKey
+	if _, err := os.Stat(apiKey); err == nil {
+		keyBytes, err := os.ReadFile(apiKey)
+		if err != nil {
+			return "", fmt.Errorf("failed to read API key from file %s: %w", apiKey, err)
+		}
+		apiKey = strings.TrimSpace(string(keyBytes))
+	}
+	return apiKey, nil
+}
 
 type content struct {
 	// https://docs.anthropic.com/en/api/messages
@@ -803,6 +827,23 @@ func fromLLMTool(t *llm.Tool) *tool {
 	}
 }
 
+// fromLLMToolWithPrefix converts an llm.Tool to an Anthropic tool, prefixing the name.
+// Used for Claude Max OAuth which requires sk_ prefixed tool names.
+func fromLLMToolWithPrefix(t *llm.Tool, prefix string) *tool {
+	res := fromLLMTool(t)
+	res.Name = prefix + t.Name
+	return res
+}
+
+// unprefixToolNames removes the tool prefix from tool names in response content.
+// Used to restore original tool names after Claude Max OAuth responses.
+func unprefixToolNames(contents []llm.Content, prefix string) []llm.Content {
+	for i := range contents {
+		contents[i].ToolName = strings.TrimPrefix(contents[i].ToolName, prefix)
+	}
+	return contents
+}
+
 func fromLLMSystem(s llm.SystemContent) systemContent {
 	return systemContent{
 		Text: s.Text,
@@ -817,10 +858,10 @@ func fromLLMSystem(s llm.SystemContent) systemContent {
 }
 
 func (s *Service) fromLLMRequest(r *llm.Request) *request {
-	return s.buildRequest(r, false)
+	return s.buildRequest(r, false, false)
 }
 
-func (s *Service) buildRequest(r *llm.Request, stripThinking bool) *request {
+func (s *Service) buildRequest(r *llm.Request, stripThinking, isClaudeMax bool) *request {
 	model := cmp.Or(s.Model, DefaultModel)
 	maxTokens := s.requestMaxTokens(model)
 
@@ -841,13 +882,41 @@ func (s *Service) buildRequest(r *llm.Request, stripThinking bool) *request {
 			messages = append(messages, msg)
 		}
 	}
+
+	// Build system messages - prepend Claude Code prompt for Claude Max
+	var system []systemContent
+	if isClaudeMax {
+		system = append(system, systemContent{
+			Text: "You are Claude Code, Anthropic's official CLI for Claude.",
+			Type: "text",
+		})
+	}
+	system = append(system, mapped(r.System, fromLLMSystem)...)
+
+	// Build tools - prefix names for Claude Max
+	var tools []*tool
+	if isClaudeMax {
+		tools = make([]*tool, len(r.Tools))
+		for i, t := range r.Tools {
+			if t.ServerSide {
+				// Server-side tools (e.g. web_search) run on Anthropic's
+				// infrastructure and require canonical names; never prefix.
+				tools[i] = fromLLMTool(t)
+				continue
+			}
+			tools[i] = fromLLMToolWithPrefix(t, toolPrefix)
+		}
+	} else {
+		tools = mapped(r.Tools, fromLLMTool)
+	}
+
 	req := &request{
 		Model:      model,
 		Messages:   messages,
 		MaxTokens:  maxTokens,
 		ToolChoice: fromLLMToolChoice(r.ToolChoice),
-		Tools:      mapped(r.Tools, fromLLMTool),
-		System:     mapped(r.System, fromLLMSystem),
+		Tools:      tools,
+		System:     system,
 	}
 
 	if !s.DisableReasoning {
@@ -1290,7 +1359,17 @@ func (s *Service) Do(ctx context.Context, ir *llm.Request) (*llm.Response, error
 		return nil, err
 	}
 	startTime := time.Now()
-	request := s.fromLLMRequest(ir)
+
+	// Read API key from file if it's a file path (allows token refresh without restart)
+	apiKey, err := s.readAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
+	// Detect Claude Max mode based on API key prefix
+	isClaudeMax := isClaudeMaxToken(apiKey)
+
+	request := s.buildRequest(ir, false, isClaudeMax)
 	request.Stream = true
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -1357,7 +1436,9 @@ func (s *Service) Do(ctx context.Context, ir *llm.Request) (*llm.Response, error
 			return nil, errors.Join(errs, err)
 		}
 
-		s.setHeaders(req, request)
+		if err := s.setHeaders(req, request); err != nil {
+			return nil, errors.Join(errs, err)
+		}
 
 		resp, err := httpc.Do(req)
 		if err != nil {
@@ -1391,6 +1472,9 @@ func (s *Service) Do(ctx context.Context, ir *llm.Request) (*llm.Response, error
 			}
 			origin := s.messageOrigin(request.Model)
 			result := toLLMResponse(response)
+			if isClaudeMax {
+				result.Content = unprefixToolNames(result.Content, toolPrefix)
+			}
 			result.Origin = &origin
 			result.StartTime = &startTime
 			result.EndTime = &endTime
@@ -1418,7 +1502,7 @@ func (s *Service) Do(ctx context.Context, ir *llm.Request) (*llm.Response, error
 				continue
 			case resp.StatusCode >= 400 && resp.StatusCode < 500:
 				if strippedPayload == nil && invalidThinkingSignature(string(buf)) {
-					strippedReq := s.buildRequest(ir, true)
+					strippedReq := s.buildRequest(ir, true, isClaudeMax)
 					strippedReq.Stream = true
 					newPayload, err := json.Marshal(strippedReq)
 					if err != nil {
@@ -1448,13 +1532,30 @@ func (s *Service) Do(ctx context.Context, ir *llm.Request) (*llm.Response, error
 	}
 }
 
-func (s *Service) setHeaders(req *http.Request, request *request) {
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", s.APIKey)
-	req.Header.Set("Anthropic-Version", "2023-06-01")
-	if request.Thinking != nil && request.Thinking.BlockBinding != nil {
-		req.Header.Set("Anthropic-Beta", thinkingBindingBeta)
+// setHeaders sets the request headers. The API key is re-read on every call
+// (it may be a file path) so a refreshed Claude Max OAuth token is picked up
+// without a restart; a Claude Max token uses Bearer auth and the oauth betas.
+func (s *Service) setHeaders(req *http.Request, request *request) error {
+	apiKey, err := s.readAPIKey()
+	if err != nil {
+		return err
 	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	var betas []string
+	if isClaudeMaxToken(apiKey) {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		betas = append(betas, claudeMaxBetas)
+	} else {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+	if request.Thinking != nil && request.Thinking.BlockBinding != nil {
+		betas = append(betas, thinkingBindingBeta)
+	}
+	if len(betas) > 0 {
+		req.Header.Set("Anthropic-Beta", strings.Join(betas, ","))
+	}
+	return nil
 }
 
 // CacheTTL is the lifetime of the default "ephemeral" cache_control.
@@ -1470,7 +1571,13 @@ func (s *Service) WarmCache(ctx context.Context, ir *llm.Request) (llm.Usage, er
 	if err != nil {
 		return llm.Usage{}, err
 	}
-	request := s.fromLLMRequest(ir)
+	// The warm request must be byte-identical to the live one, which under
+	// a Claude Max token carries the Claude Code prefix and tool names.
+	apiKey, err := s.readAPIKey()
+	if err != nil {
+		return llm.Usage{}, err
+	}
+	request := s.buildRequest(ir, false, isClaudeMaxToken(apiKey))
 	if request.Thinking != nil && request.Thinking.Type == "enabled" {
 		return llm.Usage{}, fmt.Errorf("%w: budget thinking needs output tokens", llm.ErrCacheWarmUnsupported)
 	}
@@ -1484,7 +1591,9 @@ func (s *Service) WarmCache(ctx context.Context, ir *llm.Request) (llm.Usage, er
 	if err != nil {
 		return llm.Usage{}, err
 	}
-	s.setHeaders(req, request)
+	if err := s.setHeaders(req, request); err != nil {
+		return llm.Usage{}, err
+	}
 	resp, err := cmp.Or(s.HTTPC, http.DefaultClient).Do(req)
 	if err != nil {
 		return llm.Usage{}, err

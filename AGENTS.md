@@ -44,3 +44,6 @@
     entry that duplicates one of the real choices. Only keep a `default` sentinel when the
     concrete value is genuinely unknowable; even then, spell it out if you can (e.g. `Default
     (on)` for a boolean toggle).
+17. Prefer `wait: false` for subagents doing background research. Use `wait: true` only when
+    you need the result to continue, and keep timeouts short (30s max). Never block the
+    conversation for minutes.
