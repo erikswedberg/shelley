@@ -30,7 +30,6 @@ import (
 type GlobalConfig struct {
 	DBPath                string
 	Debug                 bool
-	Model                 string
 	PredictableOnly       bool
 	ConfigPath            string
 	DefaultModel          string
@@ -59,7 +58,6 @@ func main() {
 	defaultModelID := models.Default().ID
 	flag.StringVar(&global.DBPath, "db", "shelley.db", "Path to SQLite database file")
 	flag.BoolVar(&global.Debug, "debug", false, "Enable debug logging")
-	flag.StringVar(&global.Model, "model", defaultModelID, "LLM model to use (use 'predictable' for testing)")
 	flag.BoolVar(&global.PredictableOnly, "predictable-only", false, "Use only the predictable service, ignoring all other models")
 	flag.StringVar(&global.ConfigPath, "config", "", "Path to shelley.json configuration file (optional)")
 	flag.StringVar(&global.DefaultModel, "default-model", defaultModelID, "Default model for web UI")
