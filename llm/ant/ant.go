@@ -546,6 +546,12 @@ func fromLLMContent(c llm.Content) content {
 		for i, tr := range c.ToolResult {
 			// For image content inside a tool_result, we need to map it to "image" type
 			if tr.MediaType != "" && tr.MediaType == "image/jpeg" || tr.MediaType == "image/png" {
+				// Drop images that exceed the API's 5MB base64 limit
+				if len(tr.Data) > maxBase64ImageSize {
+					placeholder := "[image omitted: exceeded 5MB API limit]"
+					toolResult[i] = content{Type: "text", Text: &placeholder}
+					continue
+				}
 				// Format as an image for Claude
 				toolResult[i] = content{
 					Type: "image",
@@ -568,9 +574,15 @@ func fromLLMContent(c llm.Content) content {
 	case llm.ContentTypeText:
 		// Images are represented as text with MediaType and Data
 		if c.MediaType != "" {
-			d.Type = "image"
-			d.Source = json.RawMessage(fmt.Sprintf(`{"type":"base64","media_type":"%s","data":"%s"}`,
-				c.MediaType, c.Data))
+			// Drop images that exceed the API's 5MB base64 limit
+			if len(c.Data) > maxBase64ImageSize {
+				placeholder := "[image omitted: exceeded 5MB API limit]"
+				d.Text = &placeholder
+			} else {
+				d.Type = "image"
+				d.Source = json.RawMessage(fmt.Sprintf(`{"type":"base64","media_type":"%s","data":"%s"}`,
+					c.MediaType, c.Data))
+			}
 		} else {
 			d.Text = &c.Text
 		}
@@ -622,6 +634,70 @@ func fromLLMToolUse(tu *llm.ToolUse) *toolUse {
 		ID:   tu.ID,
 		Name: tu.Name,
 	}
+}
+
+// maxBase64ImageSize is the Anthropic API limit for base64-encoded image data (5MB).
+const maxBase64ImageSize = 5 * 1024 * 1024
+
+// maxMediaPerRequest is the maximum number of image blocks allowed per API request.
+const maxMediaPerRequest = 100
+
+// isImageContent reports whether a content block is an image.
+func isImageContent(c llm.Content) bool {
+	return c.MediaType != ""
+}
+
+// stripExcessImages removes the oldest image blocks from messages if the total
+// count exceeds maxMediaPerRequest.
+func stripExcessImages(messages []llm.Message) []llm.Message {
+	total := 0
+	for _, m := range messages {
+		for _, c := range m.Content {
+			if isImageContent(c) {
+				total++
+			}
+			for _, tr := range c.ToolResult {
+				if isImageContent(tr) {
+					total++
+				}
+			}
+		}
+	}
+
+	toRemove := total - maxMediaPerRequest
+	if toRemove <= 0 {
+		return messages
+	}
+
+	result := make([]llm.Message, len(messages))
+	for i, m := range messages {
+		if toRemove <= 0 {
+			result[i] = m
+			continue
+		}
+		var filtered []llm.Content
+		for _, c := range m.Content {
+			if len(c.ToolResult) > 0 && toRemove > 0 {
+				var filteredTR []llm.Content
+				for _, tr := range c.ToolResult {
+					if toRemove > 0 && isImageContent(tr) {
+						toRemove--
+						continue
+					}
+					filteredTR = append(filteredTR, tr)
+				}
+				c.ToolResult = filteredTR
+			}
+			if toRemove > 0 && isImageContent(c) {
+				toRemove--
+				continue
+			}
+			filtered = append(filtered, c)
+		}
+		result[i] = m
+		result[i].Content = filtered
+	}
+	return result
 }
 
 // sanitizeServerToolBlocks removes orphaned server-side tool blocks that would
@@ -793,8 +869,9 @@ func (s *Service) buildRequest(r *llm.Request, stripThinking, isClaudeMax bool) 
 
 	// Drop orphaned server-side tool blocks (e.g. a web_search server_tool_use
 	// whose web_search_tool_result ended up in a different message). Anthropic
-	// rejects such histories. See sanitizeServerToolBlocks.
-	srcMessages := sanitizeServerToolBlocks(r.Messages)
+	// rejects such histories. See sanitizeServerToolBlocks. Then strip excess
+	// image blocks to stay within API limits (oldest first).
+	srcMessages := stripExcessImages(sanitizeServerToolBlocks(r.Messages))
 
 	var messages []message
 	origin := s.messageOrigin(model)
@@ -1000,6 +1077,59 @@ type streamEvent struct {
 	Usage *usage `json:"usage,omitempty"`
 }
 
+// sanitizeToolInput escapes raw control characters (< 0x20) that appear inside
+// JSON string literals. Models sometimes stream a literal tab or newline inside
+// a tool-input string, producing JSON that json.RawMessage cannot re-marshal.
+// If the input already parses as valid JSON it is returned unchanged.
+func sanitizeToolInput(raw json.RawMessage) json.RawMessage {
+	if json.Valid(raw) {
+		return raw
+	}
+	var out []byte
+	inString := false
+	escaped := false
+	for _, b := range raw {
+		if inString {
+			if escaped {
+				escaped = false
+				out = append(out, b)
+				continue
+			}
+			switch {
+			case b == '\\':
+				escaped = true
+				out = append(out, b)
+			case b == '"':
+				inString = false
+				out = append(out, b)
+			case b < 0x20:
+				switch b {
+				case '\n':
+					out = append(out, '\\', 'n')
+				case '\t':
+					out = append(out, '\\', 't')
+				case '\r':
+					out = append(out, '\\', 'r')
+				case '\b':
+					out = append(out, '\\', 'b')
+				case '\f':
+					out = append(out, '\\', 'f')
+				default:
+					out = append(out, fmt.Sprintf(`\u%04x`, b)...)
+				}
+			default:
+				out = append(out, b)
+			}
+			continue
+		}
+		if b == '"' {
+			inString = true
+		}
+		out = append(out, b)
+	}
+	return json.RawMessage(out)
+}
+
 // streamDelta represents the delta field in content_block_delta and message_delta events.
 type streamDelta struct {
 	Type string `json:"type"`
@@ -1177,8 +1307,17 @@ func parseSSEStream(ctx context.Context, r io.Reader, onStream func(llm.StreamDe
 	// Anthropic requires the "input" field on tool_use blocks, and
 	// json:"input,omitempty" omits nil, causing a 400 error.
 	for i := range contents {
-		if contents[i].Type == "tool_use" && contents[i].ToolInput == nil {
-			contents[i].ToolInput = json.RawMessage("{}")
+		if contents[i].Type == "tool_use" || contents[i].Type == "server_tool_use" {
+			if contents[i].ToolInput == nil {
+				contents[i].ToolInput = json.RawMessage("{}")
+			} else {
+				// Models occasionally emit raw control characters (e.g. a
+				// literal tab or newline) inside tool-input JSON string
+				// literals. That is invalid JSON: json.RawMessage.MarshalJSON
+				// validates and rejects it, which poisons every later
+				// re-marshal of the conversation. Escape such characters.
+				contents[i].ToolInput = sanitizeToolInput(contents[i].ToolInput)
+			}
 		}
 	}
 
