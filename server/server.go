@@ -991,6 +991,9 @@ func (s *Server) getOrCreateConversationManager(ctx context.Context, conversatio
 		}
 		manager := NewConversationManager(conversationID, s.db, s.logger, managerConfig, recordMessage, recordTurnStart, recordBatch, onStateChange, s.streamPub)
 		manager.onTurnStartRejected = func() { go manager.drainPendingMessages(s) }
+		manager.recordDrainedQueued = func(ctx context.Context, queuedID string, msg llm.Message, userEmail string) error {
+			return s.recordDrainedQueuedMessage(ctx, conversationID, queuedID, msg, userEmail)
+		}
 		manager.userEmail = userEmail
 		manager.serverPort = s.listenPort
 		manager.btwReader = btwReader
@@ -1062,6 +1065,9 @@ func (s *Server) getOrCreateSubagentConversationManager(ctx context.Context, con
 		subagentConfig.SubagentDepth++
 		manager := NewConversationManager(conversationID, s.db, s.logger, subagentConfig, recordMessage, recordTurnStart, recordBatch, onStateChange, s.streamPub)
 		manager.onTurnStartRejected = func() { go manager.drainPendingMessages(s) }
+		manager.recordDrainedQueued = func(ctx context.Context, queuedID string, msg llm.Message, userEmail string) error {
+			return s.recordDrainedQueuedMessage(ctx, conversationID, queuedID, msg, userEmail)
+		}
 		manager.serverPort = s.listenPort
 		manager.onDone = func() { s.dispatchSubagentDone(conversationID) }
 		manager.onTodoProgress = func(completed, total int) {

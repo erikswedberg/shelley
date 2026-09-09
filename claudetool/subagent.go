@@ -169,19 +169,19 @@ func (s *SubagentTool) subagentInputSchema() string {
     },
     "wait": {
       "type": "boolean",
-      "description": "Whether to wait for completion (default: true). If false, returns immediately; when the subagent eventually finishes, its response is delivered asynchronously. If wait=true and the subagent completes before timeout, no later asynchronous duplicate is delivered. Sending a new message to a subagent that is still working does NOT interrupt it: the message is queued and delivered after the current turn finishes."
+      "description": "Whether to block until the subagent finishes (default: false). Prefer the default: the tool returns immediately and the subagent's response is delivered to you asynchronously when it finishes, so you stay responsive to the user meanwhile. Use wait=true only for short tasks whose result you need before your very next step. A wait=true call ends early if the user sends you a message; the subagent keeps running and you will still be notified. Sending a new message to a subagent that is still working does NOT interrupt it: the message is queued and delivered after its current turn finishes."
     }%s%s
   }
 }`, modelProp, reasoningProp)
 }
 
 type subagentInput struct {
-	Slug           string `json:"slug"`
-	Prompt         string `json:"prompt"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	Slug           string    `json:"slug"`
+	Prompt         string    `json:"prompt"`
+	TimeoutSeconds int       `json:"timeout_seconds,omitempty"`
 	Wait           *FlexBool `json:"wait,omitempty"`
-	Model          string `json:"model,omitempty"`
-	Reasoning      string `json:"reasoning,omitempty"`
+	Model          string    `json:"model,omitempty"`
+	Reasoning      string    `json:"reasoning,omitempty"`
 }
 
 // Tool returns an llm.Tool for the subagent functionality.
@@ -222,7 +222,7 @@ func (s *SubagentTool) run(ctx context.Context, req subagentInput) llm.ToolOut {
 		timeout = min(time.Duration(req.TimeoutSeconds)*time.Second, subagentMaxTimeout)
 	}
 
-	wait := true
+	wait := false
 	if req.Wait != nil {
 		wait = bool(*req.Wait)
 	}
