@@ -58,6 +58,7 @@ type SystemPromptVariable struct {
 
 // systemPromptVariables are the fields a system prompt template can use.
 var systemPromptVariables = []SystemPromptVariable{
+	{`template "builtin" .`, "The built-in system prompt, to extend instead of replace."},
 	{".WorkingDirectory", "The conversation's working directory."},
 	{".UserEmail", "The user's exe.dev email; empty if unknown."},
 	{".GitInfo.Root", "The git repository root. .GitInfo is nil outside a repository."},
@@ -104,16 +105,17 @@ func validateSystemPromptTemplate(tmpl string) *TemplateProblem {
 	return nil
 }
 
-// renderSystemPrompt renders data's template. Its errors are
-// *TemplateProblem.
+// renderSystemPrompt renders data's template, which can extend the built-in
+// one with {{template "builtin" .}}. Its errors are *TemplateProblem.
 func renderSystemPrompt(data *SystemPromptData) (string, error) {
-	text := data.template
-	if text == "" {
-		text = systemPromptTemplate
-	}
-	tmpl, err := template.New("system_prompt").Option("missingkey=error").Parse(text)
-	if err != nil {
-		return "", templateProblemOf(text, err)
+	tmpl := template.Must(template.New("builtin").Option("missingkey=error").Parse(systemPromptTemplate))
+	text := systemPromptTemplate
+	if data.template != "" {
+		text = data.template
+		var err error
+		if tmpl, err = tmpl.New("system_prompt").Parse(text); err != nil {
+			return "", templateProblemOf(text, err)
+		}
 	}
 	var buf strings.Builder
 	if err := tmpl.Execute(&buf, data); err != nil {

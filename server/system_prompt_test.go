@@ -1355,3 +1355,23 @@ func TestSystemPromptListsExeDevIntegrations(t *testing.T) {
 		t.Fatalf("MCP servers: %+v", servers)
 	}
 }
+
+// A profile prompt can extend the built-in one instead of replacing it.
+func TestSystemPromptTemplateExtendsBuiltin(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	builtin, err := GenerateSystemPrompt(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extended, err := GenerateSystemPrompt(dir, WithTemplate("{{template \"builtin\" .}}\n\nEXTRA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := builtin + "\nEXTRA\n"; extended != want {
+		t.Fatalf("extended prompt:\n%s\nwant:\n%s", extended, want)
+	}
+	if err := validateSystemPromptTemplate(`{{template "builtin" .}}`); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+}
