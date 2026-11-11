@@ -22,8 +22,11 @@ var slackAssistantSystemPrompt string
 
 // builtinProfiles is the single source of shipped profile settings.
 var builtinProfiles = map[string]string{
-	"Default":   "{}",
+	"Default":   `{"tool_overrides":{"compact_in_place":"off"}}`,
 	"Assistant": assistantProfile(assistantSystemPrompt, map[string]string{"message_user": "on"}),
+	// Named in lower case so +plan and +orchestrate read naturally in a message.
+	"plan":        extendedPrompt("# Planning mode\n\nResearch, read, analyze, plan, discuss. Write plans and notes as `.md` files under `/tmp`. Do not edit project files, build, code, or commit. Get plans and approaches approved before coding.\n"),
+	"orchestrate": extendedPrompt("# Coordinator\n\nYou coordinate; subagents do the work. Before launching anything, activate the `subagent-recipe` skill and follow it. Write briefs and notes as `.md` files under `/tmp`. Do not edit project files or commit yourself.\n"),
 	// The Slack Assistant answers Slack messages delivered by exe.dev's Slack app.
 	"Slack Assistant": assistantProfile(slackAssistantSystemPrompt, map[string]string{
 		"send_to_thread":  "on",
@@ -31,6 +34,16 @@ var builtinProfiles = map[string]string{
 		"add_reaction":    "on",
 		"message_user":    "off",
 	}),
+}
+
+// extendedPrompt is a profile whose system prompt is the built-in one
+// followed by section.
+func extendedPrompt(section string) string {
+	settings, err := json.Marshal(map[string]string{"system_prompt": "{{template \"builtin\" .}}\n\n" + section})
+	if err != nil {
+		panic(err)
+	}
+	return string(settings)
 }
 
 // assistantProfile is a chat-first assistant, prompted by systemPrompt,

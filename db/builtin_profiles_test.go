@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"shelley.exe.dev/db/generated"
@@ -199,5 +200,24 @@ func TestBuiltinAssistantKeepsUserProfile(t *testing.T) {
 	}
 	if got := builtinProfile(t, db, "Assistant"); got.Settings != mine || got.Builtin {
 		t.Fatalf("user's Assistant changed: %+v", got)
+	}
+}
+
+// Default stops auto compaction; plan and orchestrate extend the built-in
+// prompt and are installed opt-in, with no tool overrides.
+func TestBuiltinPlanAndOrchestrate(t *testing.T) {
+	db := setupTestDB(t)
+	if opts := ParseConversationOptions(builtinProfile(t, db, "Default").Settings); opts.ToolOverrides["compact_in_place"] != "off" {
+		t.Fatalf("Default: %+v", opts)
+	}
+	for name, section := range map[string]string{"plan": "# Planning mode", "orchestrate": "# Coordinator"} {
+		profile := builtinProfile(t, db, name)
+		if !profile.Builtin || profile.UserEdited || profile.IsDefault {
+			t.Fatalf("%s: %+v", name, profile)
+		}
+		opts := ParseConversationOptions(profile.Settings)
+		if !strings.HasPrefix(opts.SystemPrompt, "{{template \"builtin\" .}}\n\n"+section+"\n") || len(opts.ToolOverrides) != 0 {
+			t.Fatalf("%s: %+v", name, opts)
+		}
 	}
 }

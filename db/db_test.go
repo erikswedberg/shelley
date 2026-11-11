@@ -172,8 +172,13 @@ func TestDB_Migrate_MarksDefaultBuiltin(t *testing.T) {
 			if err := db.Migrate(ctx); err != nil {
 				t.Fatal(err)
 			}
+			// An unedited Default takes the shipped settings.
+			want := settings
+			if settings == `{}` {
+				want = builtinProfiles["Default"]
+			}
 			after := listMigrationProfiles(t, db)
-			if p := after[0]; p.Name != "Default" || p.Settings != settings || !p.IsDefault || !p.Builtin || p.UserEdited != (settings != `{}`) {
+			if p := after[0]; p.Name != "Default" || p.Settings != want || !p.IsDefault || !p.Builtin || p.UserEdited != (settings != `{}`) {
 				t.Fatalf("upgrade marked Default wrong: %+v", p)
 			}
 		})

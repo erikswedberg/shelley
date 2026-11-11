@@ -420,3 +420,28 @@ func TestProfileMentionSetupFailureLeavesNoLoop(t *testing.T) {
 		t.Fatal("rejected profile turn left its unstarted loop installed")
 	}
 }
+
+// The shipped plan profile answers +plan and extends the built-in prompt.
+func TestShippedPlanProfileMention(t *testing.T) {
+	e := newProfileEnv(t)
+	profile, err := e.srv.profileMention(t.Context(), "+plan hello")
+	if err != nil || profile == nil || profile.Name != "plan" {
+		t.Fatalf("+plan: %+v, %v", profile, err)
+	}
+	var created struct {
+		ConversationID string `json:"conversation_id"`
+	}
+	cwd := t.TempDir()
+	body, _ := json.Marshal(map[string]string{"message": "+plan hello", "cwd": cwd})
+	if err := json.Unmarshal([]byte(e.want(201, "POST", "/api/conversations/new", string(body))), &created); err != nil {
+		t.Fatal(err)
+	}
+	e.waitTurn(created.ConversationID, 0)
+	builtin, err := GenerateSystemPrompt(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := systemText(e.lastTurnRequest()); !strings.HasPrefix(got, strings.TrimSuffix(builtin, "\n")) || !strings.Contains(got, "\n# Planning mode\n") {
+		t.Fatalf("plan prompt: %q", got)
+	}
+}

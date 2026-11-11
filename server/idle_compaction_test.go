@@ -14,6 +14,7 @@ import (
 
 	"shelley.exe.dev/claudetool"
 	"shelley.exe.dev/db"
+	"shelley.exe.dev/db/generated"
 	"shelley.exe.dev/llm"
 	"shelley.exe.dev/llm/predictable"
 	"shelley.exe.dev/models"
@@ -340,7 +341,16 @@ func TestIdleCompactionNeedsTheTool(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := NewTestHarness(t)
 		defer stopActiveConversationLoops(h.server)
-		h.convOpts = &db.ConversationOptions{DisableNotifications: true, DisableAllTools: true, IdleCompactionMinutes: 3}
+		// The shipped Default turns compact_in_place off outright, which
+		// settings validation rejects alongside idle compaction; -no-tools
+		// alone gets past it.
+		if err := h.db.QueriesTx(t.Context(), func(q *generated.Queries) error {
+			_, err := q.CreateProfile(t.Context(), generated.CreateProfileParams{Name: "Bare", Settings: "{}"})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		h.convOpts = &db.ConversationOptions{Profile: "Bare", DisableNotifications: true, DisableAllTools: true, IdleCompactionMinutes: 3}
 		h.NewConversation("echo: keep the garden plan", "")
 		synctest.Wait()
 		cm, err := h.server.getOrCreateConversationManager(t.Context(), h.convID, "")

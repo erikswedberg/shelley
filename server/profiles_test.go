@@ -110,7 +110,7 @@ func systemText(req *llm.Request) string {
 func TestProfilesCRUD(t *testing.T) {
 	t.Parallel()
 	e := newProfileEnv(t)
-	if p := e.profiles(); len(p) != 3 || !p["Default"].Default || p["Default"].Model != "" || p["Default"].SystemPrompt != "" {
+	if p := e.profiles(); len(p) != 5 || !p["Default"].Default || p["Default"].Model != "" || p["Default"].SystemPrompt != "" {
 		t.Fatalf("initial profiles: %+v", p)
 	}
 	e.want(201, "POST", "/api/profiles", `{"name":" Fast ","model":"model-b","thinking_level":"low","tool_overrides":{"bash":"off"}}`)
@@ -143,7 +143,7 @@ func TestProfilesCRUD(t *testing.T) {
 	e.want(404, "PUT", "/api/profiles/Nope", `{}`)
 	e.want(404, "DELETE", "/api/profiles/Nope", "")
 	e.want(204, "DELETE", "/api/profiles/Default", "")
-	if p := e.profiles(); len(p) != 4 {
+	if p := e.profiles(); len(p) != 6 {
 		t.Fatalf("after delete: %+v", p)
 	}
 	// Names are path segments.
@@ -390,7 +390,7 @@ func TestConversationSwitchesProfiles(t *testing.T) {
 	if settings.Profile != "Default" || settings.Model != "model-b" || settings.SystemPrompt != "" || settings.ToolOverrides == nil {
 		t.Fatalf("settings after switching: %+v", settings)
 	}
-	if got := e.want(200, "GET", "/api/conversation/"+id+"/settings", ""); strings.TrimSpace(got) != `{"profile":"Default","model":"model-b","thinking_level":"","tool_overrides":{},"compact_nudge_tokens":0,"idle_compaction_minutes":0,"idle_compaction_prompt":"","cache_keep_warm_minutes":0,"system_prompt":""}` {
+	if got := e.want(200, "GET", "/api/conversation/"+id+"/settings", ""); strings.TrimSpace(got) != `{"profile":"Default","model":"model-b","thinking_level":"","tool_overrides":{"compact_in_place":"off"},"compact_nudge_tokens":0,"idle_compaction_minutes":0,"idle_compaction_prompt":"","cache_keep_warm_minutes":0,"system_prompt":""}` {
 		t.Fatalf("GET settings: %s", got)
 	}
 	marker := lastModelChange(listMessages(t, e.database, id))
@@ -404,7 +404,7 @@ func TestConversationSwitchesProfiles(t *testing.T) {
 	if ud.Previous == nil || ud.Previous.Profile != "Terse" || ud.Previous.ToolOverrides["bash"] != "off" {
 		t.Fatalf("marker's previous settings: %+v", ud.Previous)
 	}
-	if ud.Text != "Profile changed to Default; tools turned on: bash; system prompt changed." {
+	if ud.Text != "Profile changed to Default; tools turned on: bash; tools turned off: compact_in_place; system prompt changed." {
 		t.Fatalf("marker text: %q", ud.Text)
 	}
 
@@ -416,19 +416,19 @@ func TestConversationSwitchesProfiles(t *testing.T) {
 		t.Fatalf("after switching: system %q, bash %v", got, hasTool(req, "bash"))
 	}
 	conv, _ = e.database.GetConversationByID(t.Context(), id)
-	if opts := db.ParseConversationOptions(conv.ConversationOptions); *conv.Model != "model-b" || opts.Profile != "Default" || opts.SystemPrompt != "" || len(opts.ToolOverrides) != 0 {
+	if opts := db.ParseConversationOptions(conv.ConversationOptions); *conv.Model != "model-b" || opts.Profile != "Default" || opts.SystemPrompt != "" || opts.ToolOverrides["compact_in_place"] != "off" {
 		t.Fatalf("after switching: model %s, options %+v", *conv.Model, opts)
 	}
 
 	// Changing nothing records nothing.
 	n = len(listMessages(t, e.database, id))
-	e.want(200, "POST", "/api/conversation/"+id+"/settings", `{"model":"model-b","tool_overrides":{}}`)
+	e.want(200, "POST", "/api/conversation/"+id+"/settings", `{"model":"model-b","tool_overrides":{"compact_in_place":"off"}}`)
 	if got := len(listMessages(t, e.database, id)); got != n {
 		t.Fatalf("a no-op change added %d messages", got-n)
 	}
 	// Saving the settings as a new profile only relabels the conversation:
 	// a marker, but no new system prompt.
-	e.want(201, "POST", "/api/profiles", `{"name":"Same","model":"model-b"}`)
+	e.want(201, "POST", "/api/profiles", `{"name":"Same","model":"model-b","tool_overrides":{"compact_in_place":"off"}}`)
 	e.want(200, "POST", "/api/conversation/"+id+"/settings", `{"profile":"Same"}`)
 	msgs := listMessages(t, e.database, id)
 	if len(msgs) != n+1 || !strings.Contains(*msgs[n].UserData, `"text":"Profile changed to Same."`) {
